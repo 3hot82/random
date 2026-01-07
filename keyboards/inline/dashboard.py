@@ -6,7 +6,8 @@ from database.models.giveaway import Giveaway
 # --- ГЛАВНОЕ МЕНЮ (/start) ---
 def start_menu_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🎫 Мои участия", callback_data="my_participations")
+    # БЫЛО: "🎫 Мои участия" -> СТАЛО: "🎁 Розыгрыши"
+    builder.button(text="🎁 Розыгрыши", callback_data="my_participations")
     builder.button(text="✨ Создать розыгрыш", callback_data="create_gw_init")
     builder.button(text="👤 Личный кабинет", callback_data="cabinet_hub")
     builder.adjust(1)
@@ -22,10 +23,9 @@ def cabinet_kb() -> InlineKeyboardMarkup:
     builder.adjust(1)
     return builder.as_markup()
 
-# --- МЕНЮ РОЗЫГРЫШЕЙ (HUB) ---
+# --- МЕНЮ РОЗЫГРЫШЕЙ (HUB ОРГАНИЗАТОРА) ---
 def my_giveaways_hub_kb(active_count: int, finished_count: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    # Цифры в скобках, без лишних эмодзи
     builder.button(text=f"Актуальные ({active_count})", callback_data="gw_list:active")
     builder.button(text=f"Завершенные ({finished_count})", callback_data="gw_list:finished")
     builder.button(text="🔙 Назад", callback_data="cabinet_hub")
@@ -37,9 +37,7 @@ def giveaways_list_kb(giveaways: list[Giveaway], status: str) -> InlineKeyboardB
     builder = InlineKeyboardBuilder()
     
     for gw in giveaways:
-        # Индикация статуса точкой
         icon = "🟢" if status == "active" else "⚫️"
-        # Обрезаем текст приза
         name = gw.prize_text[:25].replace("\n", " ")
         builder.button(text=f"{icon} {name}...", callback_data=f"gw_manage:{gw.id}")
     

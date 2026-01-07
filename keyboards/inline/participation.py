@@ -1,4 +1,3 @@
-# keyboards/inline/participation.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -9,19 +8,26 @@ def join_keyboard(bot_username: str, giveaway_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Участвовать 🎁", url=url)]
     ])
 
-def check_subscription_kb(gw_id: int, channels: list) -> InlineKeyboardMarkup:
+def check_subscription_kb(gw_id: int, channels_status: list) -> InlineKeyboardMarkup:
     """
-    Клавиатура, которую видит пользователь в ЛС, если не подписан.
-    channels: список словарей {'title': str, 'link': str}
+    Генерирует клавиатуру со списком каналов.
+    channels_status: список словарей {'title': str, 'link': str, 'is_subscribed': bool}
     """
     builder = InlineKeyboardBuilder()
     
-    # Кнопки каналов
-    for ch in channels:
-        builder.button(text=f"📢 {ch['title']}", url=ch['link'])
+    for ch in channels_status:
+        if ch['is_subscribed']:
+            # Если подписан - ставим галочку
+            text = f"✅ {ch['title']}"
+        else:
+            # Если нет - ставим рупор
+            text = f"📢 {ch['title']}"
+            
+        # Ссылка нужна в любом случае
+        builder.button(text=text, url=ch['link'])
     
-    # Кнопка проверки (Callback!)
-    builder.button(text="🔄 Я подписался", callback_data=f"check_sub:{gw_id}")
+    # Кнопка проверки
+    builder.button(text="🔄 Проверить подписки", callback_data=f"check_sub:{gw_id}")
     
     builder.adjust(1)
     return builder.as_markup()

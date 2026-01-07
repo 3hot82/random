@@ -6,9 +6,11 @@ class Channel(Base):
     __tablename__ = "channels"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"))
-    channel_id: Mapped[int] = mapped_column(BigInteger)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id")) # Владелец канала
+    
+    channel_id: Mapped[int] = mapped_column(BigInteger) # ID канала в Telegram
     title: Mapped[str] = mapped_column(String)
     username: Mapped[str | None] = mapped_column(String, nullable=True)
-    # НОВОЕ ПОЛЕ:
+    
+    # НОВОЕ ПОЛЕ: Ссылка-приглашение (для приватных каналов)
     invite_link: Mapped[str | None] = mapped_column(String, nullable=True)

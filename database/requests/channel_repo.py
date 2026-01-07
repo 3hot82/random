@@ -3,8 +3,17 @@ from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert
 from database.models.channel import Channel
 
-async def add_channel(session: AsyncSession, user_id: int, channel_id: int, title: str, username: str | None, invite_link: str | None):
-    """Добавляет канал с инвайт-ссылкой"""
+async def add_channel(
+    session: AsyncSession, 
+    user_id: int, 
+    channel_id: int, 
+    title: str, 
+    username: str | None, 
+    invite_link: str | None
+):
+    """
+    Добавляет или обновляет канал с инвайт-ссылкой.
+    """
     stmt = insert(Channel).values(
         user_id=user_id,
         channel_id=channel_id,
@@ -12,17 +21,12 @@ async def add_channel(session: AsyncSession, user_id: int, channel_id: int, titl
         username=username,
         invite_link=invite_link
     ).on_conflict_do_update(
-        index_elements=['id'], # Или по user_id+channel_id если есть уникальный индекс
+        index_elements=['id'], 
         set_=dict(title=title, username=username, invite_link=invite_link)
     )
-    # Для простоты используем do_nothing или update, если хотим обновлять названия
-    # Но так как у нас нет уникального констрейнта в модели (кроме id), лучше сначала проверить
-    # В рамках этого кода используем простую вставку с проверкой на дубли в логике или тут:
     
-    # Проверим, есть ли уже такой канал у юзера
-    check_stmt = select(Channel).where(Channel.user_id == user_id, Channel.channel_id == channel_id)
-    existing = await session.scalar(check_stmt)
-    
+    # Проверка на существование для надежности (альтернатива on_conflict для некоторых БД)
+    existing = await session.scalar(select(Channel).where(Channel.channel_id == channel_id))
     if existing:
         existing.title = title
         existing.username = username

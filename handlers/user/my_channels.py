@@ -54,12 +54,12 @@ async def process_channel_step1(message: types.Message, state: FSMContext, bot: 
             chat_id = chat.id
             title = chat.title
             username = chat.username
-        except Exception as e:
+        except:
             await message.answer("❌ Не могу найти канал. Проверьте @username.")
             return
 
     if not chat_id:
-        await message.answer("❌ Не удалось определить канал. Попробуйте переслать пост.")
+        await message.answer("❌ Не удалось определить канал.")
         return
 
     # Проверка прав
@@ -69,18 +69,42 @@ async def process_channel_step1(message: types.Message, state: FSMContext, bot: 
             await message.answer("❌ Бот не админ! Дайте права и попробуйте снова.")
             return
     except Exception as e:
-        logger.warning(f"Access error for channel {chat_id}: {e}")
-        await message.answer(f"❌ Ошибка доступа: Бот не видит канал. Сделайте его админом.")
+        await message.answer(f"❌ Ошибка доступа: {e}")
         return
 
-    await state.update_data(temp_channel={"id": chat_id, "title": title, "username": username})
+    # --- НОВОЕ: Попытка получить ссылку приглашения ---
+    invite_link = None
+    if username:
+        invite_link = f"https://t.me/{username}"
+    else:
+        # Если канал приватный, пробуем создать или получить ссылку
+        try:
+            # Сначала пробуем экспорт (если уже есть)
+            invite_link = await bot.export_chat_invite_link(chat_id)
+        except:
+            try:
+                # Если не вышло, создаем новую
+                link_obj = await bot.create_chat_invite_link(chat_id, name="Giveaway Bot")
+                invite_link = link_obj.invite_link
+            except Exception as e:
+                logger.warning(f"Could not generate link for {chat_id}: {e}")
+
+    await state.update_data(temp_channel={
+        "id": chat_id, 
+        "title": title, 
+        "username": username,
+        "auto_link": invite_link
+    })
     
     await state.set_state(ChannelState.waiting_for_link)
-    await message.answer(
-        f"✅ Канал <b>{title}</b> найден!\n\n"
-        "🔗 <b>Шаг 2/2:</b> Пришлите инвайт-ссылку (для кнопки 'Подписаться') или нажмите Пропустить.",
-        reply_markup=skip_link_kb("settings")
-    )
+    
+    text = f"✅ Канал <b>{title}</b> найден!\n"
+    if invite_link:
+        text += f"🔗 Ссылка определена: {invite_link}\n\nНажмите «Пропустить», чтобы использовать её, или пришлите свою."
+    else:
+        text += "\n🔗 <b>Шаг 2/2:</b> Я не смог получить ссылку (канал приватный?). Пришлите инвайт-ссылку вручную."
+
+    await message.answer(text, reply_markup=skip_link_kb("settings"))
 
 @router.message(ChannelState.waiting_for_link)
 async def process_link_text(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -91,6 +115,7 @@ async def process_link_text(message: types.Message, state: FSMContext, session: 
 
     data = await state.get_data()
     ch_data = data['temp_channel']
+    
     await add_channel(session, message.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link)
     
     await message.answer(f"✅ Канал <b>{ch_data['title']}</b> успешно добавлен!")
@@ -98,21 +123,15 @@ async def process_link_text(message: types.Message, state: FSMContext, session: 
     await show_channels_list_msg(message, session, message.from_user.id)
 
 @router.callback_query(ChannelState.waiting_for_link, F.data == "skip_link_settings")
-async def process_link_skip(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+async def process_link_skip(call: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     data = await state.get_data()
     ch_data = data['temp_channel']
     
-    auto_link = None
-    if ch_data['username']: 
-        auto_link = f"https://t.me/{ch_data['username']}"
-    else:
-        try: 
-            invite = await bot.create_chat_invite_link(ch_data['id'], name="RozPlay Bot")
-            auto_link = invite.invite_link
-        except Exception as e: 
-            logger.warning(f"Failed to generate link for {ch_data['id']}: {e}")
+    final_link = ch_data.get('auto_link')
+    if not final_link:
+        return await call.answer("❌ Ссылка не найдена, пришлите вручную.", show_alert=True)
 
-    await add_channel(session, call.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], auto_link)
+    await add_channel(session, call.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], final_link)
     
     await call.message.delete()
     await call.message.answer(f"✅ Канал <b>{ch_data['title']}</b> успешно добавлен!")

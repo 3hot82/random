@@ -1,12 +1,12 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database.models.giveaway import Giveaway
 
-def giveaways_hub_kb(has_created: bool) -> InlineKeyboardBuilder:
+def giveaways_hub_kb(has_created: bool, active_count: int, finished_count: int) -> InlineKeyboardBuilder:
     builder = InlineKeyboardBuilder()
     
-    # Раздел участника
-    builder.button(text="⏳ В которых участвую", callback_data="part_list:active:0")
-    builder.button(text="🏁 Завершенные (Участие)", callback_data="part_list:finished:0")
+    # Раздел участника (Счетчики!)
+    builder.button(text=f"⏳ Участвую ({active_count})", callback_data="part_list:active:0")
+    builder.button(text=f"🏁 Завершенные ({finished_count})", callback_data="part_list:finished:0")
     
     # Раздел создателя
     if has_created:
@@ -25,8 +25,6 @@ def universal_list_kb(
 ) -> InlineKeyboardBuilder:
     """
     Универсальный список.
-    prefix может быть: 'part_list:active', 'part_list:finished', 'created_list'
-    won_ids: набор ID розыгрышей, в которых юзер победил (нужно для отображения кубка)
     """
     builder = InlineKeyboardBuilder()
     won_ids = won_ids or set()
@@ -38,7 +36,6 @@ def universal_list_kb(
         elif gw.status == 'active':
             icon = "⏳"
         else:
-            # Проверяем на победу через переданный set ID
             if gw.id in won_ids:
                 icon = "🏆"
             else:
@@ -46,7 +43,6 @@ def universal_list_kb(
         
         btn_text = f"{icon} {gw.prize_text[:20]}..."
         
-        # Определяем действие при клике
         action = "view_created" if "created" in prefix else "part_view"
         builder.button(text=btn_text, callback_data=f"{action}:{gw.id}")
 
@@ -65,7 +61,6 @@ def universal_list_kb(
     
     builder.button(text="🔙 Назад", callback_data="giveaways_hub")
     
-    # Сетка
     sizes = [1] * len(giveaways) + [len(nav_buttons)] + [1]
     builder.adjust(*sizes)
     return builder.as_markup()
