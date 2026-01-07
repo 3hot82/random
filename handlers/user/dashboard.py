@@ -2,6 +2,7 @@ from aiogram import Router, types, Bot, F
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.exceptions import TelegramBadRequest # Импортируем исключение
 
 from database.requests.user_repo import register_user
 from keyboards.inline.dashboard import start_menu_kb, cabinet_kb
@@ -35,17 +36,23 @@ async def smart_dashboard(
 
 @router.callback_query(F.data == "dashboard_home")
 async def back_home(call: types.CallbackQuery):
-    await call.message.edit_text(
-        "👋 <b>Главное меню</b>\nВыберите действие:", 
-        reply_markup=start_menu_kb()
-    )
+    try:
+        await call.message.edit_text(
+            "👋 <b>Главное меню</b>\nВыберите действие:", 
+            reply_markup=start_menu_kb()
+        )
+    except TelegramBadRequest:
+        # Если сообщение не изменилось - просто отвечаем на callback, чтобы убрать часики
+        await call.answer()
 
 @router.callback_query(F.data == "cabinet_hub")
 async def open_cabinet(call: types.CallbackQuery, session: AsyncSession):
-    # Тут можно подгрузить статистику из БД, если нужно
     text = (
         "👤 <b>Кабинет организатора</b>\n\n"
         f"🆔 ID: <code>{call.from_user.id}</code>\n"
         "📊 Здесь вы управляете каналами и подпиской."
     )
-    await call.message.edit_text(text, reply_markup=cabinet_kb())
+    try:
+        await call.message.edit_text(text, reply_markup=cabinet_kb())
+    except TelegramBadRequest:
+        await call.answer()

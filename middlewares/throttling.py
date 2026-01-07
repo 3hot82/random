@@ -1,8 +1,6 @@
-# middlewares/throttling.py
-import time
 from typing import Callable, Awaitable, Dict, Any
 from aiogram import BaseMiddleware
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from redis.asyncio import Redis
 
 class ThrottlingMiddleware(BaseMiddleware):
@@ -12,22 +10,25 @@ class ThrottlingMiddleware(BaseMiddleware):
 
     async def __call__(
         self,
-        handler: Callable[[CallbackQuery, Dict[str, Any]], Awaitable[Any]],
-        event: CallbackQuery,
+        handler: Callable[[Message | CallbackQuery, Dict[str, Any]], Awaitable[Any]],
+        event: Message | CallbackQuery,
         data: Dict[str, Any]
     ) -> Any:
-        if not isinstance(event, CallbackQuery):
-            return await handler(event, data)
-            
+        # Работаем только с колбэками (кнопки) или командами
         user_id = event.from_user.id
+        
+        # Ключ анти-спама: throttle:USER_ID
         key = f"throttle:{user_id}"
         
-        # Простая проверка: если ключ есть, значит спам
+        # Проверяем наличие ключа в Redis
         if await self.redis.get(key):
-            await event.answer("⏳ Не так быстро!", show_alert=True)
-            return
+            # Если ключ есть, значит прошло меньше rate_limit секунд
+            if isinstance(event, CallbackQuery):
+                await event.answer("⏳ Не так быстро!", show_alert=True)
+            return # Прерываем обработку, хендлер не запустится
             
-        # Ставим ключ на 1 секунду
+        # Устанавливаем ключ с временем жизни (TTL) = rate_limit
         await self.redis.set(key, "1", ex=int(self.rate_limit))
         
+        # Пропускаем дальше
         return await handler(event, data)

@@ -1,7 +1,9 @@
 import math
 from aiogram import Router, types, F, Bot
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
+from database.models.winner import Winner  # <--- ВАЖНО
 from database.requests.participant_repo import get_user_participations_detailed, count_user_participations
 from database.requests.giveaway_repo import get_giveaway_by_id, get_giveaways_by_owner, count_giveaways_by_owner
 from database.requests.user_repo import get_user_stats
@@ -31,6 +33,7 @@ async def show_participation_list(call: types.CallbackQuery, session: AsyncSessi
     offset = page * limit
     user_id = call.from_user.id
     
+    # Получаем список розыгрышей
     giveaways = await get_user_participations_detailed(session, user_id, status, limit, offset)
     total_count = await count_user_participations(session, user_id, status)
     
@@ -41,9 +44,23 @@ async def show_participation_list(call: types.CallbackQuery, session: AsyncSessi
     status_text = "В которых участвую" if status == 'active' else "Завершенные (Участие)"
     prefix = f"part_list:{status}"
     
+    # --- ИСПРАВЛЕНИЕ: Получаем список побед ---
+    won_ids = set()
+    if status == 'finished' and giveaways:
+        # Собираем ID загруженных розыгрышей
+        gw_ids = [gw.id for gw in giveaways]
+        # Смотрим, в каких из них юзер есть в таблице winners
+        stmt = select(Winner.giveaway_id).where(
+            Winner.giveaway_id.in_(gw_ids),
+            Winner.user_id == user_id
+        )
+        result = await session.execute(stmt)
+        won_ids = set(result.scalars().all())
+    # ------------------------------------------
+    
     await call.message.edit_text(
         f"📂 <b>{status_text}</b>\nСтраница {page+1} из {total_pages}",
-        reply_markup=universal_list_kb(giveaways, page, total_pages, prefix, user_id)
+        reply_markup=universal_list_kb(giveaways, page, total_pages, prefix, won_ids=won_ids)
     )
 
 # 3. СПИСОК СОЗДАННЫХ МНОЙ
@@ -66,7 +83,7 @@ async def show_created_list(call: types.CallbackQuery, session: AsyncSession):
     
     await call.message.edit_text(
         f"📂 <b>Мои розыгрыши (Созданные)</b>\nСтраница {page+1} из {total_pages}",
-        reply_markup=universal_list_kb(giveaways, page, total_pages, "created_list", user_id)
+        reply_markup=universal_list_kb(giveaways, page, total_pages, "created_list", user_id=user_id)
     )
 
 # 4. ПРОСМОТР ДЕТАЛЕЙ (УЧАСТИЕ)
@@ -76,21 +93,32 @@ async def view_participation(call: types.CallbackQuery, session: AsyncSession, b
     gw = await get_giveaway_by_id(session, gw_id)
     if not gw: return await call.answer("Не найдено")
 
-    user_id_str = str(call.from_user.id)
+    user_id = call.from_user.id
+    
     if gw.status == 'active':
         st_text = "⏳ Активен"
         res_text = "🤞 Вы участвуете"
     else:
         st_text = "🏁 Завершен"
-        if gw.winner_ids and user_id_str in gw.winner_ids.split(","):
+        # --- ИСПРАВЛЕНИЕ: Проверка через таблицу Winner ---
+        winner_check = await session.scalar(
+            select(Winner).where(Winner.giveaway_id == gw.id, Winner.user_id == user_id)
+        )
+        
+        if winner_check:
             res_text = "🏆 <b>ВЫ ВЫИГРАЛИ!</b>"
         else:
             res_text = "❌ Вы не выиграли"
+        # --------------------------------------------------
 
     post_link = None
     try:
         chat = await bot.get_chat(gw.channel_id)
-        if chat.username: post_link = f"https://t.me/{chat.username}/{gw.message_id}"
+        if chat.username: 
+            post_link = f"https://t.me/{chat.username}/{gw.message_id}"
+        elif chat.invite_link:
+             # Если приватный канал, ссылку на пост сложно дать, даем на канал
+             post_link = chat.invite_link
     except: pass
 
     await call.message.edit_text(

@@ -6,8 +6,9 @@ from sqlalchemy import select
 
 from database.requests.user_repo import register_user
 from database.models.winner import Winner
-from handlers.participant.join import show_subscription_check
-from core.services.ref_service import resolve_ref_link # <--- Сервис
+# Импортируем главную функцию входа (она теперь называется try_join_giveaway)
+from handlers.participant.join import try_join_giveaway 
+from core.services.ref_service import resolve_ref_link
 
 router = Router()
 
@@ -19,18 +20,18 @@ async def cmd_start(
     bot: Bot, 
     state: FSMContext
 ):
+    # Регистрируем юзера (имя, username) в базе users
     await register_user(session, message.from_user.id, message.from_user.username, message.from_user.full_name)
 
     args = command.args
     if not args:
         return await message.answer(f"👋 Привет, {message.from_user.first_name}!")
 
-    # 1. Результаты (через таблицу Winners)
+    # 1. Просмотр результатов (res_ID)
     if args.startswith("res_"):
         try: gw_id = int(args.replace("res_", ""))
         except: return
         
-        # Ищем победителей в таблице
         stmt = select(Winner).where(Winner.giveaway_id == gw_id)
         winners = (await session.execute(stmt)).scalars().all()
         
@@ -48,14 +49,11 @@ async def cmd_start(
             except:
                 text += f"{i}. ID {w.user_id}\n"
         
-        if is_winner:
-            text = "🎉 <b>ВЫ ВЫИГРАЛИ!</b> 🎉\n\n" + text
-            
+        if is_winner: text = "🎉 <b>ВЫ ВЫИГРАЛИ!</b> 🎉\n\n" + text
         return await message.answer(text)
 
-    # 2. Участие
+    # 2. Участие в розыгрыше (gw_ID_TOKEN)
     if args.startswith("gw_"):
-        # gw_100_a8b3c9...
         clean_args = args.replace("gw_", "")
         parts = clean_args.split("_")
         
@@ -65,15 +63,14 @@ async def cmd_start(
             return await message.answer("❌ Ссылка повреждена.")
 
         referrer_id = None
+        # Если есть вторая часть (токен реферала)
         if len(parts) > 1:
             token = parts[1]
-            # Ходим в Redis за реальным ID
             candidate_id = await resolve_ref_link(token)
             
+            # Базовая защита: нельзя пригласить самого себя
             if candidate_id and candidate_id != message.from_user.id:
                 referrer_id = candidate_id
 
-        if referrer_id:
-            await state.update_data(referrer_id=referrer_id)
-        
-        await show_subscription_check(message, gw_id, session, bot)
+        # Передаем управление в логику входа
+        await try_join_giveaway(message, gw_id, session, bot, state, referrer_id)

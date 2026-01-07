@@ -1,3 +1,4 @@
+import logging
 from aiogram import Router, types, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
@@ -7,14 +8,13 @@ from database.requests.channel_repo import add_channel, get_user_channels, delet
 from keyboards.inline.dashboard import channels_list_kb, back_to_dash, skip_link_kb
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 class ChannelState(StatesGroup):
     waiting_for_forward = State()
     waiting_for_link = State()
 
-# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ---
 async def show_channels_list_msg(message_or_call, session: AsyncSession, user_id: int):
-    """Показывает список каналов. Работает и с Message, и с CallbackQuery."""
     channels = await get_user_channels(session, user_id)
     text = "📢 <b>Мои каналы</b>\n\nСписок каналов, где бот является администратором."
     kb = channels_list_kb(channels)
@@ -22,10 +22,7 @@ async def show_channels_list_msg(message_or_call, session: AsyncSession, user_id
     if isinstance(message_or_call, types.CallbackQuery):
         await message_or_call.message.edit_text(text, reply_markup=kb)
     else:
-        # Если вызываем из message (после успешного добавления)
         await message_or_call.answer(text, reply_markup=kb)
-
-# --- ХЕНДЛЕРЫ ---
 
 @router.callback_query(F.data == "my_channels")
 async def show_channels(call: types.CallbackQuery, session: AsyncSession):
@@ -57,7 +54,7 @@ async def process_channel_step1(message: types.Message, state: FSMContext, bot: 
             chat_id = chat.id
             title = chat.title
             username = chat.username
-        except:
+        except Exception as e:
             await message.answer("❌ Не могу найти канал. Проверьте @username.")
             return
 
@@ -65,13 +62,15 @@ async def process_channel_step1(message: types.Message, state: FSMContext, bot: 
         await message.answer("❌ Не удалось определить канал. Попробуйте переслать пост.")
         return
 
+    # Проверка прав
     try:
         member = await bot.get_chat_member(chat_id, bot.id)
         if member.status not in ("administrator", "creator"):
             await message.answer("❌ Бот не админ! Дайте права и попробуйте снова.")
             return
     except Exception as e:
-        await message.answer(f"❌ Ошибка доступа: {e}")
+        logger.warning(f"Access error for channel {chat_id}: {e}")
+        await message.answer(f"❌ Ошибка доступа: Бот не видит канал. Сделайте его админом.")
         return
 
     await state.update_data(temp_channel={"id": chat_id, "title": title, "username": username})
@@ -86,7 +85,7 @@ async def process_channel_step1(message: types.Message, state: FSMContext, bot: 
 @router.message(ChannelState.waiting_for_link)
 async def process_link_text(message: types.Message, state: FSMContext, session: AsyncSession):
     link = message.text.strip()
-    if "t.me" not in link:
+    if "t.me" not in link and not link.startswith("https://"):
         await message.answer("❌ Это не похоже на ссылку.")
         return
 
@@ -96,8 +95,6 @@ async def process_link_text(message: types.Message, state: FSMContext, session: 
     
     await message.answer(f"✅ Канал <b>{ch_data['title']}</b> успешно добавлен!")
     await state.clear()
-    
-    # ВОЗВРАТ К СПИСКУ КАНАЛОВ
     await show_channels_list_msg(message, session, message.from_user.id)
 
 @router.callback_query(ChannelState.waiting_for_link, F.data == "skip_link_settings")
@@ -106,24 +103,29 @@ async def process_link_skip(call: types.CallbackQuery, state: FSMContext, sessio
     ch_data = data['temp_channel']
     
     auto_link = None
-    if ch_data['username']: auto_link = f"@{ch_data['username']}"
+    if ch_data['username']: 
+        auto_link = f"https://t.me/{ch_data['username']}"
     else:
-        try: auto_link = await bot.export_chat_invite_link(ch_data['id'])
-        except: pass
+        try: 
+            invite = await bot.create_chat_invite_link(ch_data['id'], name="RozPlay Bot")
+            auto_link = invite.invite_link
+        except Exception as e: 
+            logger.warning(f"Failed to generate link for {ch_data['id']}: {e}")
 
     await add_channel(session, call.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], auto_link)
     
     await call.message.delete()
     await call.message.answer(f"✅ Канал <b>{ch_data['title']}</b> успешно добавлен!")
     await state.clear()
-
-    # ВОЗВРАТ К СПИСКУ КАНАЛОВ
     await show_channels_list_msg(call.message, session, call.from_user.id)
 
 @router.callback_query(F.data.startswith("del_ch_"))
 async def delete_ch(call: types.CallbackQuery, session: AsyncSession):
-    ch_id = int(call.data.split("_")[-1])
-    await delete_channel_by_id(session, ch_id, call.from_user.id)
-    await call.answer("🗑 Канал удален.")
-    # Обновляем список (редактируем сообщение)
-    await show_channels(call, session)
+    try:
+        ch_id = int(call.data.split("_")[-1])
+        await delete_channel_by_id(session, ch_id, call.from_user.id)
+        await call.answer("🗑 Канал удален.")
+        await show_channels(call, session)
+    except Exception as e:
+        logger.error(f"Error deleting channel: {e}")
+        await call.answer("Ошибка удаления", show_alert=True)

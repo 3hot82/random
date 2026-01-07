@@ -1,3 +1,4 @@
+import logging
 from aiogram import Router, types, Bot, F
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
@@ -13,13 +14,13 @@ from keyboards.inline.participation import join_keyboard
 from core.tools.formatters import format_giveaway_caption
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 # --- ХАБ ---
 @router.callback_query(F.data == "my_giveaways_hub")
 async def show_gw_hub(call: types.CallbackQuery, session: AsyncSession):
     user_id = call.from_user.id
     
-    # Считаем количество для кнопок
     active_count = await count_giveaways_by_status(session, user_id, "active")
     finished_count = await count_giveaways_by_status(session, user_id, "finished")
     
@@ -34,6 +35,7 @@ async def show_gw_list(call: types.CallbackQuery, session: AsyncSession):
     status = call.data.split(":")[1]
     user_id = call.from_user.id
     
+    # Получаем ТОЛЬКО розыгрыши этого пользователя
     gws = await get_giveaways_by_owner(session, user_id, limit=50)
     filtered = [g for g in gws if g.status == status]
     
@@ -46,13 +48,18 @@ async def show_gw_list(call: types.CallbackQuery, session: AsyncSession):
         reply_markup=giveaways_list_kb(filtered, status)
     )
 
-# --- УПРАВЛЕНИЕ ---
+# --- УПРАВЛЕНИЕ (Меню) ---
 @router.callback_query(F.data.startswith("gw_manage:"))
 async def manage_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
     gw_id = int(call.data.split(":")[1])
     gw = await get_giveaway_by_id(session, gw_id)
     
-    if not gw: return await call.answer("Не найдено")
+    if not gw: 
+        return await call.answer("Розыгрыш не найден", show_alert=True)
+    
+    # ЗАЩИТА: Проверяем, что это владелец
+    if gw.owner_id != call.from_user.id:
+        return await call.answer("⛔ Вы не являетесь создателем этого розыгрыша!", show_alert=True)
     
     stats_info = f"🏆 Приз: {gw.prize_text}\n📅 Финиш: {gw.finish_time.strftime('%d.%m %H:%M')}"
     
@@ -63,7 +70,8 @@ async def manage_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
         try:
             chat = await bot.get_chat(gw.channel_id)
             if chat.username: link = f"https://t.me/{chat.username}/{gw.message_id}"
-        except: pass
+        except Exception as e: 
+            logger.warning(f"Failed to get link for GW {gw_id}: {e}")
         
         await call.message.edit_text(f"⚫️ <b>Завершенный розыгрыш #{gw.id}</b>\n\n{stats_info}", reply_markup=finished_gw_manage_kb(gw.id, link))
 
@@ -74,12 +82,22 @@ async def manage_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
 async def repost_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
     gw_id = int(call.data.split(":")[2])
     gw = await get_giveaway_by_id(session, gw_id)
-    if not gw or gw.status != 'active': return await call.answer("Ошибка статуса", show_alert=True)
     
-    # Удаляем старый пост
+    if not gw: 
+        return await call.answer("Розыгрыш не найден", show_alert=True)
+        
+    # ЗАЩИТА: Проверка владельца
+    if gw.owner_id != call.from_user.id:
+        return await call.answer("⛔ Доступ запрещен!", show_alert=True)
+        
+    if gw.status != 'active': 
+        return await call.answer("Розыгрыш уже завершен", show_alert=True)
+    
+    # Удаляем старый пост (пытаемся)
     try:
         await bot.delete_message(gw.channel_id, gw.message_id)
-    except: pass
+    except Exception as e:
+        logger.warning(f"Could not delete old message for GW {gw_id}: {e}")
 
     bot_info = await bot.get_me()
     kb = join_keyboard(bot_info.username, gw.id)
@@ -105,13 +123,26 @@ async def repost_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
         await session.commit()
         await call.answer("✅ Пост опубликован повторно!", show_alert=True)
     except Exception as e:
+        logger.error(f"Failed to repost GW {gw_id}: {e}")
         await call.answer(f"Ошибка публикации: {e}", show_alert=True)
 
 # 2. ЗАВЕРШЕНИЕ
 @router.callback_query(F.data.startswith("gw_act:finish:"))
-async def finish_gw_now(call: types.CallbackQuery):
+async def finish_gw_now(call: types.CallbackQuery, session: AsyncSession):
     gw_id = int(call.data.split(":")[2])
+    
+    # Сначала получаем розыгрыш для проверки прав
+    gw = await get_giveaway_by_id(session, gw_id)
+    
+    if not gw:
+        return await call.answer("Розыгрыш не найден", show_alert=True)
+        
+    # ЗАЩИТА: Проверка владельца
+    if gw.owner_id != call.from_user.id:
+        return await call.answer("⛔ Вы не можете завершить чужой розыгрыш!", show_alert=True)
+    
     await call.answer("Завершаю...", show_alert=False)
+    # Запускаем таску
     await finish_giveaway_task(gw_id)
     await call.message.edit_text("✅ Розыгрыш принудительно завершен.")
 
@@ -121,17 +152,32 @@ async def delete_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
     gw_id = int(call.data.split(":")[2])
     gw = await get_giveaway_by_id(session, gw_id)
     
-    if gw:
-        try:
-            await bot.delete_message(gw.channel_id, gw.message_id)
-        except: pass
+    if not gw:
+        return await call.answer("Розыгрыш не найден.", show_alert=True)
+
+    # ЗАЩИТА: Проверка владельца
+    if gw.owner_id != call.from_user.id:
+        return await call.answer("⛔ Вы не можете удалить чужой розыгрыш!", show_alert=True)
         
-        # Удаляем всё связанное
+    # Пытаемся удалить пост из канала
+    try:
+        await bot.delete_message(gw.channel_id, gw.message_id)
+    except Exception as e:
+        logger.warning(f"Message delete failed for GW {gw_id}: {e}")
+    
+    # Транзакционное удаление из БД
+    try:
+        # Удаляем зависимые записи
         await session.execute(delete(Winner).where(Winner.giveaway_id == gw_id))
         await session.execute(delete(Participant).where(Participant.giveaway_id == gw_id))
         await session.execute(delete(GiveawayRequiredChannel).where(GiveawayRequiredChannel.giveaway_id == gw_id))
+        # Удаляем сам розыгрыш
         await session.delete(gw)
         await session.commit()
+        await call.answer("🗑 Розыгрыш удален.", show_alert=True)
+    except Exception as e:
+        logger.error(f"DB Delete failed for GW {gw_id}: {e}")
+        await session.rollback()
+        await call.answer("❌ Ошибка БД при удалении.", show_alert=True)
         
-    await call.answer("🗑 Розыгрыш удален.", show_alert=True)
     await show_gw_hub(call, session)

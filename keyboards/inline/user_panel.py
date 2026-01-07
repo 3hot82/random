@@ -16,12 +16,20 @@ def giveaways_hub_kb(has_created: bool) -> InlineKeyboardBuilder:
     builder.adjust(1)
     return builder.as_markup()
 
-def universal_list_kb(giveaways: list[Giveaway], page: int, total_pages: int, prefix: str, user_id: int) -> InlineKeyboardBuilder:
+def universal_list_kb(
+    giveaways: list[Giveaway], 
+    page: int, 
+    total_pages: int, 
+    prefix: str, 
+    won_ids: set[int] = None
+) -> InlineKeyboardBuilder:
     """
     Универсальный список.
     prefix может быть: 'part_list:active', 'part_list:finished', 'created_list'
+    won_ids: набор ID розыгрышей, в которых юзер победил (нужно для отображения кубка)
     """
     builder = InlineKeyboardBuilder()
+    won_ids = won_ids or set()
     
     for gw in giveaways:
         # Выбираем иконку
@@ -30,8 +38,8 @@ def universal_list_kb(giveaways: list[Giveaway], page: int, total_pages: int, pr
         elif gw.status == 'active':
             icon = "⏳"
         else:
-            # Проверяем на победу
-            if gw.winner_ids and str(user_id) in gw.winner_ids.split(","):
+            # Проверяем на победу через переданный set ID
+            if gw.id in won_ids:
                 icon = "🏆"
             else:
                 icon = "❌"

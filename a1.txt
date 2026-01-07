@@ -95,12 +95,20 @@ def giveaways_hub_kb(has_created: bool) -> InlineKeyboardBuilder:
     builder.adjust(1)
     return builder.as_markup()
 
-def universal_list_kb(giveaways: list[Giveaway], page: int, total_pages: int, prefix: str, user_id: int) -> InlineKeyboardBuilder:
+def universal_list_kb(
+    giveaways: list[Giveaway], 
+    page: int, 
+    total_pages: int, 
+    prefix: str, 
+    won_ids: set[int] = None
+) -> InlineKeyboardBuilder:
     """
     Универсальный список.
     prefix может быть: 'part_list:active', 'part_list:finished', 'created_list'
+    won_ids: набор ID розыгрышей, в которых юзер победил (нужно для отображения кубка)
     """
     builder = InlineKeyboardBuilder()
+    won_ids = won_ids or set()
     
     for gw in giveaways:
         # Выбираем иконку
@@ -109,8 +117,8 @@ def universal_list_kb(giveaways: list[Giveaway], page: int, total_pages: int, pr
         elif gw.status == 'active':
             icon = "⏳"
         else:
-            # Проверяем на победу
-            if gw.winner_ids and str(user_id) in gw.winner_ids.split(","):
+            # Проверяем на победу через переданный set ID
+            if gw.id in won_ids:
                 icon = "🏆"
             else:
                 icon = "❌"
@@ -155,16 +163,33 @@ def detail_back_kb() -> InlineKeyboardBuilder:
     return builder.as_markup()=== ./keyboards/inline/participation.py ===
 # keyboards/inline/participation.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def join_keyboard(bot_username: str, giveaway_id: int) -> InlineKeyboardMarkup:
+    """Кнопка под постом в канале"""
     url = f"https://t.me/{bot_username}?start=gw_{giveaway_id}"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Участвовать 🎁", url=url)]
     ])
 
-# --- НОВОЕ: Кнопка результатов ---
+def check_subscription_kb(gw_id: int, channels: list) -> InlineKeyboardMarkup:
+    """
+    Клавиатура, которую видит пользователь в ЛС, если не подписан.
+    channels: список словарей {'title': str, 'link': str}
+    """
+    builder = InlineKeyboardBuilder()
+    
+    # Кнопки каналов
+    for ch in channels:
+        builder.button(text=f"📢 {ch['title']}", url=ch['link'])
+    
+    # Кнопка проверки (Callback!)
+    builder.button(text="🔄 Я подписался", callback_data=f"check_sub:{gw_id}")
+    
+    builder.adjust(1)
+    return builder.as_markup()
+
 def results_keyboard(bot_username: str, giveaway_id: int) -> InlineKeyboardMarkup:
-    # Deep link: start=res_123
     url = f"https://t.me/{bot_username}?start=res_{giveaway_id}"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Проверить результаты", url=url)]
@@ -172,48 +197,99 @@ def results_keyboard(bot_username: str, giveaway_id: int) -> InlineKeyboardMarku
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database.models.channel import Channel
+from database.models.giveaway import Giveaway
 
-def main_dashboard_kb(is_admin: bool) -> InlineKeyboardMarkup:
+# --- ГЛАВНОЕ МЕНЮ (/start) ---
+def start_menu_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    
-    # Кнопка создания всегда сверху
-    builder.button(text="✨ Создать новый", callback_data="create_gw_init")
-    
-    # Единый хаб для всех розыгрышей
-    builder.button(text="🎁 Розыгрыши", callback_data="giveaways_hub")
-    
-    # Если админ - показываем управление каналами
-    if is_admin:
-        builder.button(text="⚙️ Мои каналы", callback_data="my_channels")
-        
+    builder.button(text="🎫 Мои участия", callback_data="my_participations")
+    builder.button(text="✨ Создать розыгрыш", callback_data="create_gw_init")
+    builder.button(text="👤 Личный кабинет", callback_data="cabinet_hub")
     builder.adjust(1)
     return builder.as_markup()
 
+# --- ЛИЧНЫЙ КАБИНЕТ ---
+def cabinet_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⚙️ Мои каналы", callback_data="my_channels")
+    builder.button(text="📂 История розыгрышей", callback_data="my_giveaways_hub")
+    builder.button(text="🧩 Платные функции", callback_data="premium_shop")
+    builder.button(text="🔙 Назад", callback_data="dashboard_home")
+    builder.adjust(1)
+    return builder.as_markup()
+
+# --- МЕНЮ РОЗЫГРЫШЕЙ (HUB) ---
+def my_giveaways_hub_kb(active_count: int, finished_count: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    # Цифры в скобках, без лишних эмодзи
+    builder.button(text=f"Актуальные ({active_count})", callback_data="gw_list:active")
+    builder.button(text=f"Завершенные ({finished_count})", callback_data="gw_list:finished")
+    builder.button(text="🔙 Назад", callback_data="cabinet_hub")
+    builder.adjust(1)
+    return builder.as_markup()
+
+# --- СПИСОК РОЗЫГРЫШЕЙ ---
+def giveaways_list_kb(giveaways: list[Giveaway], status: str) -> InlineKeyboardBuilder:
+    builder = InlineKeyboardBuilder()
+    
+    for gw in giveaways:
+        # Индикация статуса точкой
+        icon = "🟢" if status == "active" else "⚫️"
+        # Обрезаем текст приза
+        name = gw.prize_text[:25].replace("\n", " ")
+        builder.button(text=f"{icon} {name}...", callback_data=f"gw_manage:{gw.id}")
+    
+    builder.button(text="🔙 Назад", callback_data="my_giveaways_hub")
+    builder.adjust(1)
+    return builder.as_markup()
+
+# --- УПРАВЛЕНИЕ АКТИВНЫМ ---
+def active_gw_manage_kb(gw_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔄 Повторная публикация", callback_data=f"gw_act:repost:{gw_id}")
+    builder.button(text="🛑 Завершить досрочно", callback_data=f"gw_act:finish:{gw_id}")
+    builder.button(text="🗑 Удалить", callback_data=f"gw_act:delete:{gw_id}")
+    builder.button(text="🔙 Назад", callback_data="gw_list:active")
+    builder.adjust(1)
+    return builder.as_markup()
+
+# --- УПРАВЛЕНИЕ ЗАВЕРШЕННЫМ ---
+def finished_gw_manage_kb(gw_id: int, results_link: str = None) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if results_link:
+        builder.button(text="🔗 Перейти к посту", url=results_link)
+    builder.button(text="🗑 Удалить из базы", callback_data=f"gw_act:delete:{gw_id}")
+    builder.button(text="🔙 Назад", callback_data="gw_list:finished")
+    builder.adjust(1)
+    return builder.as_markup()
+
+# --- МАГАЗИН (PREMIUM) ---
+def premium_shop_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛡 Купить Капчу (50 ⭐️)", callback_data="buy_captcha")
+    builder.button(text="🔙 Назад", callback_data="cabinet_hub")
+    builder.adjust(1)
+    return builder.as_markup()
+
+# --- КАНАЛЫ ---
 def channels_list_kb(channels: list[Channel]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for ch in channels:
         builder.button(text=f"🗑 {ch.title}", callback_data=f"del_ch_{ch.id}")
-    
     builder.button(text="➕ Добавить канал", callback_data="add_new_channel")
-    builder.button(text="🔙 Назад", callback_data="dashboard_home")
-    
+    builder.button(text="🔙 Назад", callback_data="cabinet_hub")
     builder.adjust(1)
     return builder.as_markup()
 
 def back_to_dash() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="dashboard_home")]
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="cabinet_hub")]
     ])
 
-# --- ВОТ ЭТОЙ ФУНКЦИИ НЕ ХВАТАЛО ---
 def skip_link_kb(mode="settings") -> InlineKeyboardMarkup:
-    """
-    Кнопка пропуска ввода ссылки.
-    mode: 'settings' (для my_channels) или 'constr' (для конструктора)
-    """
     callback = "skip_link_settings" if mode == "settings" else "skip_link_constr"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏩ Пропустить (Взять стандартную)", callback_data=callback)]
+        [InlineKeyboardButton(text="⏩ Пропустить", callback_data=callback)]
     ])=== ./keyboards/inline/constructor.py ===
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -235,7 +311,7 @@ def constructor_main_kb(
     builder.button(text=f"🏆 Победители: {winners}", callback_data="constr_winners_menu")
     
     ref_text = f"🔗 Реф: {ref_req} друзе(й)" if ref_req > 0 else "🔗 Реф: Выкл"
-    builder.button(text=ref_text, callback_data="constr_ref_menu") # Открывает меню выбора
+    builder.button(text=ref_text, callback_data="constr_ref_menu")
     
     cap_status = "ВКЛ" if is_captcha else "Выкл"
     builder.button(text=f"🛡 Капча: {cap_status}", callback_data="constr_toggle_cap")
@@ -243,36 +319,55 @@ def constructor_main_kb(
     builder.button(text="✏️ Изменить Текст/Медиа", callback_data="constr_edit_content")
     builder.button(text="✅ ОПУБЛИКОВАТЬ", callback_data="constr_publish")
     
-    builder.adjust(2, 2, 2, 1, 1)
+    # НОВАЯ КНОПКА ОТМЕНЫ
+    builder.button(text="❌ Отмена", callback_data="cancel_creation")
+    
+    # Сетка кнопок: 2, 2, 2, 1, 1, 1
+    builder.adjust(2, 2, 2, 1, 1, 1)
     return builder.as_markup()
 
 def winners_selector_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for w in [1, 2, 3, 5, 10, 20, 50, 100]:
-        builder.button(text=str(w), callback_data=f"constr_set_winners:{w}")
+    
+    # Кнопки с популярными количествами
+    popular_values = [1, 2, 3, 5, 10, 20, 50]
+    for w in popular_values:
+        builder.button(text=f"🏆 {w}", callback_data=f"constr_set_winners:{w}")
+    
+    # Кнопка для ввода вручную
+    builder.button(text="✏️ Ввести число", callback_data="constr_set_winners_input")
     builder.button(text="🔙 Назад", callback_data="constr_back_main")
-    builder.adjust(4)
+    
+    # Сетка: 4 в ряду, затем 1
+    builder.adjust(4, 4, 1)
     return builder.as_markup()
 
-# --- НОВОЕ: Меню рефералки ---
 def referral_selector_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    # 0 = Выкл, 1, 3, 5 = кол-во друзей
     options = [(0, "Выкл"), (1, "1 друг"), (3, "3 друга"), (5, "5 друзей")]
     for val, label in options:
         builder.button(text=label, callback_data=f"constr_set_ref:{val}")
+    
+    # Добавим кнопку для ввода вручную
+    builder.button(text="✏️ Ввести число", callback_data="constr_set_ref_input")
     builder.button(text="🔙 Назад", callback_data="constr_back_main")
+    
     builder.adjust(2, 2, 1)
     return builder.as_markup()
 
 def channel_selection_kb(channels: list[Channel], mode: str, selected_ids: list[int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    
+    # Кнопки каналов
     for ch in channels:
         icon = "✅" if mode == "main" and ch.channel_id in selected_ids else ("☑️" if ch.channel_id in selected_ids else "⬜")
         cb = f"constr_set_ch:{mode}:{ch.channel_id}"
         builder.button(text=f"{icon} {ch.title}", callback_data=cb)
+    
+    # Управление
     builder.button(text="➕ Добавить новый канал", callback_data="add_new_channel_constr")
-    builder.button(text="🔙 Назад (Сохранить)", callback_data="constr_back_main")
+    builder.button(text="💾 Готово (Сохранить)", callback_data="constr_back_main")
+    
     builder.adjust(1)
     return builder.as_markup()=== ./keyboards/inline/admin_panel.py ===
 # keyboards/inline/admin_panel.py
@@ -309,29 +404,6 @@ def build_manage_menu(gw_id: int, admin_id: int):
     builder.button(text="🛑 Завершить", callback_data=AdminAction(action="finish", id=gw_id, sig=sig_finish))
     builder.button(text="🗑 Удалить", callback_data=AdminAction(action="delete", id=gw_id, sig=sig_del))
     builder.button(text="🎯 Назначить победителя", callback_data=AdminAction(action="rig", id=gw_id, sig=sig_rig))
-    
-    builder.adjust(1)
-    return builder.as_markup()=== ./keyboards/inline/creation_wizard.py ===
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from database.models.channel import Channel
-
-def confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Все верно, создать!", callback_data="wizard_confirm")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="wizard_cancel")]
-    ])
-
-# --- НОВОЕ ---
-def select_channel_kb(channels: list[Channel]) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    
-    # Кнопки с названиями каналов
-    for ch in channels:
-        builder.button(text=f"📢 {ch.title}", callback_data=f"select_ch_{ch.channel_id}")
-    
-    # Кнопка ручного ввода (если канала нет в списке)
-    builder.button(text="➕ Другой канал (переслать пост)", callback_data="manual_channel_input")
     
     builder.adjust(1)
     return builder.as_markup()=== ./keyboards/__init__.py ===
@@ -380,34 +452,147 @@ COPY . .
 RUN useradd -m appuser
 USER appuser
 
-CMD ["python", "main.py"]=== ./reset_db.py ===
+CMD ["python", "main.py"]=== ./.gitignore ===
+# Виртуальное окружение
+venv/
+.venv/
+env/
+
+# Переменные окружения (САМОЕ ВАЖНОЕ)
+.env
+
+# Байт-код Python
+__pycache__/
+*.pyc
+
+# Логи
+*.log
+
+# База данных (если используешь SQLite файл, для Postgres не нужно)
+*.db
+*.sqlite3
+
+# Настройки IDE
+.idea/
+.vscode/=== ./reset_db.py ===
 import asyncio
 from redis.asyncio import Redis
 from database import engine, Base
 from config import config
 
-# Импортируем ВСЕ модели, чтобы SQLAlchemy знала, что удалять/создавать
+# Импортируем ВСЕ модели, чтобы SQLAlchemy знала, что создавать
 from database.models.user import User
 from database.models.giveaway import Giveaway
 from database.models.participant import Participant
 from database.models.channel import Channel
 from database.models.required_channel import GiveawayRequiredChannel
+from database.models.winner import Winner # <--- Важно! Новая таблица
 
 async def reset_database():
     print("🗑 Удаляю старые таблицы PostgreSQL...")
     async with engine.begin() as conn:
+        # Удаляем все таблицы
         await conn.run_sync(Base.metadata.drop_all)
+        # Создаем все таблицы заново с новыми полями
         await conn.run_sync(Base.metadata.create_all)
     
-    print("🗑 Очищаю задачи в Redis...")
+    print("🗑 Очищаю Redis...")
     redis = Redis.from_url(config.REDIS_URL)
     await redis.flushdb()
-    await redis.aclose() # Правильное закрытие для новых версий
+    await redis.aclose()
     
-    print("✅ Все чисто! База готова к работе.")
+    print("✅ База данных полностью обновлена!")
 
 if __name__ == "__main__":
     asyncio.run(reset_database())=== ./requirements.txt ===
+aiofiles==25.1.0
+aiogram==3.23.0
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.2
+aiosignal==1.4.0
+aiounittest==1.5.0
+alembic==1.17.2
+annotated-types==0.7.0
+APScheduler==3.11.2
+asyncpg==0.31.0
+attrs==25.4.0
+babel==2.17.0
+beautifulsoup4==4.14.3
+black==25.12.0
+bleach==6.3.0
+certifi==2025.11.12
+charset-normalizer==3.4.4
+click==8.3.1
+cloudscraper==1.2.71
+colorlog==6.10.1
+cryptg==0.5.2
+fake-useragent==2.2.0
+fluent-compiler==1.1
+fluent.runtime==0.4.0
+fluent.syntax==0.19.0
+fluentogram==1.2.1
+frozenlist==1.8.0
+greenlet==3.3.0
+hashids==1.3.1
+howlongtobeatpy==1.0.19
+idna==3.11
+iniconfig==2.3.0
+isort==7.0.0
+kagglehub==0.3.13
+librt==0.7.5
+loguru==0.7.3
+lxml==6.0.2
+magic-filter==1.0.12
+Mako==1.3.10
+MarkupSafe==3.0.3
+multidict==6.7.0
+mypy==1.19.1
+mypy_extensions==1.1.0
+numpy==2.4.0
+packaging==25.0
+pandas==2.3.3
+pathspec==0.12.1
+pillow==12.0.0
+platformdirs==4.5.1
+playwright==1.57.0
+pluggy==1.6.0
+propcache==0.4.1
+pyaes==1.6.1
+pyasn1==0.6.1
+pydantic==2.12.5
+pydantic-settings==2.12.0
+pydantic_core==2.41.5
+pyee==13.0.0
+Pygments==2.19.2
+pyparsing==3.3.1
+Pyrogram==2.0.106
+PySocks==1.7.1
+pytest==9.0.2
+pytest-asyncio==1.3.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+pytokens==0.3.0
+pytz==2025.2
+PyYAML==6.0.3
+redis==7.1.0
+requests==2.32.5
+requests-toolbelt==1.0.0
+rsa==4.9.1
+six==1.17.0
+soupsieve==2.8.1
+SQLAlchemy==2.0.45
+Telethon==1.42.0
+TgCrypto==1.2.5
+tqdm==4.67.1
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.3
+tzlocal==5.3.1
+urllib3==2.6.2
+webencodings==0.5.1
+wrapt==2.0.1
+yarl==1.22.0
+yt-dlp==2025.12.8
 === ./docker-compose.yml ===
 # docker-compose.yml
 version: '3.8'
@@ -518,7 +703,69 @@ def format_giveaway_caption(prize_text: str, winners_count: int, finish_time: da
         f"👥 <b>Участников:</b> {participants_count}\n"
         f"🏆 <b>Призовых мест:</b> {winners_count}\n"
         f"⏳ <b>Итоги:</b> {date_str} ({time_left})"
-    )=== ./core/security/sanitizer.py ===
+    )=== ./core/services/checker_service.py ===
+from aiogram import Bot
+from redis.asyncio import Redis
+from config import config
+
+redis = Redis.from_url(config.REDIS_URL)
+
+async def is_user_subscribed(bot: Bot, channel_id: int, user_id: int) -> bool:
+    """
+    Проверяет подписку с кешированием на 5 минут.
+    Защищает от ошибки 429 Too Many Requests.
+    """
+    cache_key = f"sub_status:{channel_id}:{user_id}"
+    
+    # 1. Пробуем достать из кеша
+    cached = await redis.get(cache_key)
+    if cached:
+        return cached.decode() == "1"
+
+    # 2. Если нет в кеше — спрашиваем Telegram
+    try:
+        member = await bot.get_chat_member(channel_id, user_id)
+        if member.status in ('creator', 'administrator', 'member', 'restricted'):
+            # Запоминаем "Подписан" на 5 минут
+            await redis.set(cache_key, "1", ex=300)
+            return True
+        else:
+            # Запоминаем "Не подписан" на 1 минуту (меньше, чтобы быстрее обновить если подпишется)
+            await redis.set(cache_key, "0", ex=60)
+            return False
+    except Exception:
+        # Если ошибка (бот не админ или бан API) - считаем что не подписан, не кешируем ошибку надолго
+        return False=== ./core/services/ref_service.py ===
+import uuid
+from redis.asyncio import Redis
+from config import config
+
+# Подключаемся к Redis (используем тот же URL, что в конфиге)
+redis = Redis.from_url(config.REDIS_URL)
+
+async def create_ref_link(user_id: int) -> str:
+    """
+    Создает короткий UUID-токен, который указывает на реальный user_id.
+    Токен живет 30 дней.
+    """
+    # Генерируем уникальный токен (без тире, чтобы был короче)
+    token = uuid.uuid4().hex[:12] 
+    key = f"ref_map:{token}"
+    
+    # Проверяем, может у юзера уже есть активный токен (опционально), 
+    # но проще генерировать новый или хранить обратный индекс.
+    # Для скорости просто пишем:
+    await redis.set(key, user_id, ex=2592000) # 30 дней
+    return token
+
+async def resolve_ref_link(token: str) -> int | None:
+    """Получает реальный ID по токену"""
+    key = f"ref_map:{token}"
+    user_id = await redis.get(key)
+    if user_id:
+        return int(user_id)
+    return None=== ./core/services/__init__.py ===
+=== ./core/security/sanitizer.py ===
 import bleach
 from aiogram.types import Message
 
@@ -634,33 +881,23 @@ from config import config
 from database import async_session_maker
 from database.requests.giveaway_repo import get_giveaway_by_id, get_active_giveaways, get_required_channels
 from database.requests.participant_repo import get_participant_ids, get_participants_count
+from database.models.winner import Winner  # <--- Используем новую модель
 from core.tools.formatters import format_giveaway_caption
 from keyboards.inline.participation import join_keyboard, results_keyboard
+from core.services.checker_service import is_user_subscribed  # <--- Кешированный чекер
 
-async def check_subscription(bot: Bot, user_id: int, main_channel_id: int, required_channels: list) -> bool:
+async def check_subscription_all(bot: Bot, user_id: int, main_channel_id: int, required_channels: list) -> bool:
     """
-    Проверяет подписку юзера на основной канал и всех спонсоров.
-    Возвращает True, только если подписан ВЕЗДЕ.
+    Проверяет подписку на основной канал и всех спонсоров.
+    Использует Redis-кеш, чтобы не получить бан от Telegram API (429).
     """
-    # 1. Проверка основного канала
-    try:
-        m = await bot.get_chat_member(main_channel_id, user_id)
-        if m.status in ['left', 'kicked']:
-            return False
-    except:
-        # Если бот не админ или ошибка доступа — считаем условие невыполненным
+    # 1. Основной канал
+    if not await is_user_subscribed(bot, main_channel_id, user_id):
         return False
 
-    # 2. Проверка спонсоров
+    # 2. Спонсоры
     for req in required_channels:
-        try:
-            m = await bot.get_chat_member(req.channel_id, user_id)
-            if m.status in ['left', 'kicked']:
-                return False
-        except:
-            # Если не можем проверить спонсора (например, бот удален), 
-            # можно либо прощать (True), либо быть строгим (False).
-            # Выбираем строгость для честности перед спонсорами.
+        if not await is_user_subscribed(bot, req.channel_id, user_id):
             return False
     
     return True
@@ -683,99 +920,88 @@ async def finish_giveaway_task(giveaway_id: int):
             if not gw or gw.status != 'active':
                 return
 
-            # Получаем данные
             all_participants = await get_participant_ids(session, giveaway_id)
             req_channels = await get_required_channels(session, giveaway_id)
             
-            final_winners = []
+            final_winner_ids = []
             
             # --- ЭТАП 1: Обработка "подкрутки" (Rigging) ---
             if gw.predetermined_winner_id and gw.predetermined_winner_id in all_participants:
-                # Проверяем подписку "блатного" участника
-                is_valid = await check_subscription(bot, gw.predetermined_winner_id, gw.channel_id, req_channels)
-                if is_valid:
-                    final_winners.append(gw.predetermined_winner_id)
-                    # Удаляем его из общего пула, чтобы не выиграл дважды
+                # Проверяем подписку через кеш
+                if await check_subscription_all(bot, gw.predetermined_winner_id, gw.channel_id, req_channels):
+                    final_winner_ids.append(gw.predetermined_winner_id)
+                    # Удаляем из пула, чтобы не выиграл дважды
                     if gw.predetermined_winner_id in all_participants:
                         all_participants.remove(gw.predetermined_winner_id)
 
             # --- ЭТАП 2: Честный выбор остальных ---
-            needed = gw.winners_count - len(final_winners)
+            needed = gw.winners_count - len(final_winner_ids)
             
-            # Перемешиваем список участников (Cryptographically strong random)
-            # Используем set, чтобы убрать дубликаты, затем list
+            # Удаляем дубликаты и используем системный рандом
             pool = list(set(all_participants))
             secrets.SystemRandom().shuffle(pool)
 
-            # Цикл поиска победителей (с проверкой подписки)
             while needed > 0 and pool:
-                candidate = pool.pop() # Берем следующего случайного
+                candidate = pool.pop() # Берем следующего
                 
-                # Валидация: проверяем, не отписался ли он прямо перед финалом
-                is_valid = await check_subscription(bot, candidate, gw.channel_id, req_channels)
-                
-                if is_valid:
-                    final_winners.append(candidate)
+                # Валидация подписки
+                if await check_subscription_all(bot, candidate, gw.channel_id, req_channels):
+                    final_winner_ids.append(candidate)
                     needed -= 1
-                else:
-                    # Если отписался — просто пропускаем, цикл идет дальше
-                    continue
             
             # --- ЭТАП 3: Сохранение и Публикация ---
             
-            # 1. Обновляем БД
             gw.status = "finished"
-            if final_winners:
-                gw.winner_ids = ",".join(map(str, final_winners))
+            
+            # ВАЖНО: Пишем в таблицу Winners, а не в строку
+            for uid in final_winner_ids:
+                session.add(Winner(giveaway_id=gw.id, user_id=uid))
+            
             await session.commit()
             
-            # 2. Формируем текст сообщения
-            if not final_winners:
+            # Формирование текста
+            if not final_winner_ids:
                 result_text = (
                     "😔 <b>Розыгрыш завершен без победителей.</b>\n\n"
-                    "К сожалению, участников не было, либо все отписались от каналов."
+                    "Все участники отписались от каналов."
                 )
             else:
                 mentions = []
-                for idx, uid in enumerate(final_winners, 1):
+                for idx, uid in enumerate(final_winner_ids, 1):
                     try:
                         chat = await bot.get_chat(uid)
                         
-                        # -- Уведомление в ЛС победителю --
+                        # -- Уведомление в ЛС (тихое, если бот в бане у юзера, не страшно) --
                         try:
                             await bot.send_message(
                                 uid, 
                                 f"🎉 <b>ПОЗДРАВЛЯЕМ!</b>\n\n"
-                                f"Вы выиграли в розыгрыше: <b>{gw.prize_text[:50]}...</b>\n"
-                                f"Приз ваш! Срочно напишите организатору для получения."
+                                f"Вы выиграли приз: <b>{gw.prize_text[:50]}...</b>\n"
+                                f"Свяжитесь с организаторами!"
                             )
-                        except Exception as e:
-                            print(f"Не удалось написать победителю {uid} в ЛС: {e}")
+                        except: pass
                         # ---------------------------------
 
-                        # Формирование красивого имени
                         if chat.username:
                             user_link = f"@{chat.username}"
                         else:
-                            # Ссылка на профиль (работает, если у юзера есть настройки приватности)
                             user_link = f"<a href='tg://user?id={uid}'>{chat.full_name}</a>"
                         
                         mentions.append(f"{idx}. {user_link}")
 
                     except Exception:
-                        mentions.append(f"{idx}. Участник ID {uid}")
+                        mentions.append(f"{idx}. ID {uid}")
 
                 winners_list_str = "\n".join(mentions)
                 
                 result_text = (
-                    f"🎁 <b>РОЗЫГРЫШ ЗАВЕРШЕН!</b>\n"
-                    f"Мы проверили подписки всех участников.\n\n"
+                    f"🎁 <b>РОЗЫГРЫШ ЗАВЕРШЕН!</b>\n\n"
                     f"🏆 <b>Победители:</b>\n"
                     f"{winners_list_str}\n\n"
-                    f"🎉 <i>Поздравляем!</i>"
+                    f"🎉 <i>Поздравляем счастливчиков!</i>"
                 )
 
-            # 3. Отправляем пост с результатами в канал (Reply)
+            # Отправляем пост с результатами в канал
             try:
                 await bot.send_message(
                     chat_id=gw.channel_id,
@@ -784,11 +1010,11 @@ async def finish_giveaway_task(giveaway_id: int):
                     disable_web_page_preview=True
                 )
                 
-                # 4. Обновляем кнопку под постом на "Проверить результаты"
+                # Обновляем кнопку под постом на "Проверить результаты"
                 await bot.edit_message_reply_markup(
                     chat_id=gw.channel_id,
                     message_id=gw.message_id,
-                    reply_markup=results_keyboard(bot_info.username, gw_id)
+                    reply_markup=results_keyboard(bot_info.username, giveaway_id)
                 )
             except Exception as e:
                 print(f"Error finishing GW {giveaway_id}: {e}")
@@ -799,8 +1025,7 @@ async def finish_giveaway_task(giveaway_id: int):
 
 async def update_active_giveaways_task():
     """
-    Фоновая задача: обновляет счетчики (Участников: X) во всех активных розыгрышах.
-    Запускается планировщиком.
+    Фоновая задача: обновляет счетчики (Участников: X).
     """
     bot = Bot(
         token=config.BOT_TOKEN.get_secret_value(), 
@@ -824,13 +1049,8 @@ async def update_active_giveaways_task():
                         count
                     )
                     
-                    # Важно: пересоздаем кнопку, чтобы она не пропала при редактировании
                     kb = join_keyboard(bot_info.username, gw.id)
 
-                    # Обновляем сообщение (если это медиа - caption, если текст - text)
-                    # Но edit_message_caption универсален для медиа, для текста нужен edit_message_text
-                    # aiogram обычно сам разруливает, но лучше проверить media_type
-                    
                     if gw.media_file_id:
                         await bot.edit_message_caption(
                             chat_id=gw.channel_id,
@@ -848,11 +1068,35 @@ async def update_active_giveaways_task():
                         )
 
                 except Exception as e:
-                    # Игнорируем ошибку "message is not modified", это нормально
                     if "message is not modified" not in str(e).lower():
                         print(f"Skip update GW {gw.id}: {e}")
     finally:
-        await bot.session.close()=== ./core/logic/randomizer.py ===
+        await bot.session.close()=== ./core/logic/ticket_gen.py ===
+# core/logic/ticket_gen.py
+import secrets
+import string
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from database.models.participant import Participant
+
+def generate_ticket_string(length=5) -> str:
+    """Криптографически стойкая генерация"""
+    chars = string.ascii_uppercase + string.digits
+    # secrets.choice безопаснее random.choice
+    return ''.join(secrets.choice(chars) for _ in range(length))
+
+async def get_unique_ticket(session: AsyncSession, giveaway_id: int) -> str:
+    """Генерирует уникальный билет"""
+    for _ in range(100):
+        code = generate_ticket_string()
+        stmt = select(Participant).where(
+            Participant.giveaway_id == giveaway_id,
+            Participant.ticket_code == code
+        )
+        existing = await session.scalar(stmt)
+        if not existing:
+            return code
+    return "ERROR"=== ./core/logic/randomizer.py ===
 # core/logic/randomizer.py
 import secrets
 from database.models.giveaway import Giveaway
@@ -1033,16 +1277,20 @@ from core.logic.game_actions import update_active_giveaways_task
 from middlewares.db_session import DbSessionMiddleware
 from middlewares.admin_hmac import AdminSecurityMiddleware
 
-# Импорты
+# Импорты Роутеров
+from handlers.common import start
 from handlers.participant import join
 from handlers.super_admin import menu_main, list_view, manage_item, rig_winner
-from handlers.user import dashboard, my_channels, my_participations
+# Юзер Панель
+from handlers.user import dashboard, my_channels, my_participations, my_giveaways, premium
 # Конструктор
-from handlers.creator import constructor, time_picker
+from handlers.creator import constructor # Это теперь ссылка на пакет (папку), который вернет общий router
+from handlers.creator import time_picker
 
 async def main():
     logging.basicConfig(level=logging.INFO)
     
+    # Инициализация БД
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -1050,24 +1298,30 @@ async def main():
     bot = Bot(token=config.BOT_TOKEN.get_secret_value(), default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=RedisStorage(redis=redis))
 
+    # Middleware
     dp.update.middleware(DbSessionMiddleware())
     dp.callback_query.middleware(AdminSecurityMiddleware())
 
-    # Админка
+    # --- Подключение Роутеров ---
+    # 1. Админка
     dp.include_routers(menu_main.router, list_view.router, manage_item.router, rig_winner.router)
 
-    # Юзер-панель
+    # 2. Пользовательская панель (Дашборд, Каналы, Мои Розыгрыши, Премиум, Участия)
     dp.include_router(dashboard.router)
     dp.include_router(my_channels.router)
+    dp.include_router(my_giveaways.router) # Новый
+    dp.include_router(premium.router)      # Новый
     dp.include_router(my_participations.router)
     
-    # Создание (таймер раньше конструктора)
+    # 3. Конструктор
     dp.include_router(time_picker.router)
     dp.include_router(constructor.router)
 
-    # Участие
+    # 4. Участие и Старт (важен порядок, start ловит диплинки)
     dp.include_router(join.router)
+    dp.include_router(start.router)
 
+    # Запуск планировщика
     scheduler.add_job(update_active_giveaways_task, "interval", minutes=30, id="global_updater", replace_existing=True)
     await start_scheduler()
 
@@ -1119,8 +1373,20 @@ class Channel(Base):
     title: Mapped[str] = mapped_column(String)
     username: Mapped[str | None] = mapped_column(String, nullable=True)
     # НОВОЕ ПОЛЕ:
-    invite_link: Mapped[str | None] = mapped_column(String, nullable=True)=== ./database/models/user.py ===
-from sqlalchemy import BigInteger, String
+    invite_link: Mapped[str | None] = mapped_column(String, nullable=True)=== ./database/models/winner.py ===
+from datetime import datetime
+from sqlalchemy import BigInteger, ForeignKey, DateTime
+from sqlalchemy.orm import Mapped, mapped_column
+from database.base import Base
+
+class Winner(Base):
+    __tablename__ = "winners"
+
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)=== ./database/models/user.py ===
+from datetime import datetime
+from sqlalchemy import BigInteger, String, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from database.base import Base
 
@@ -1130,6 +1396,10 @@ class User(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     username: Mapped[str | None] = mapped_column(String, nullable=True)
     full_name: Mapped[str] = mapped_column(String)
+    
+    # --- Monetization ---
+    is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
+    premium_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     def __repr__(self):
         return f"<User {self.user_id}>"=== ./database/models/giveaway.py ===
@@ -1156,14 +1426,14 @@ class Giveaway(Base):
     media_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
     media_type: Mapped[str | None] = mapped_column(String, nullable=True)
     
-    winner_ids: Mapped[str | None] = mapped_column(String, nullable=True)
+    # winner_ids УДАЛЕНО. Теперь данные в таблице winners.
 
-    # --- НОВЫЕ ПОЛЯ (ПЛАН 4.0) ---
-    is_referral_enabled: Mapped[bool] = mapped_column(Boolean, default=False) # Рефералка
-    is_captcha_enabled: Mapped[bool] = mapped_column(Boolean, default=False)  # Капча
-    is_paid: Mapped[bool] = mapped_column(Boolean, default=False)             # Оплачен ли=== ./database/models/participant.py ===
+    is_referral_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_captcha_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_paid: Mapped[bool] = mapped_column(Boolean, default=False)=== ./database/models/participant.py ===
+# database/models/participant.py
 from datetime import datetime
-from sqlalchemy import BigInteger, ForeignKey, DateTime, Integer
+from sqlalchemy import BigInteger, ForeignKey, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 from database.base import Base
 
@@ -1174,9 +1444,14 @@ class Participant(Base):
     giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # --- НОВЫЕ ПОЛЯ ---
-    tickets_count: Mapped[int] = mapped_column(Integer, default=1) # Кол-во шансов
-    referrer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True) # Кто пригласил=== ./database/models/required_channel.py ===
+    # Кол-во шансов (билетов)
+    tickets_count: Mapped[int] = mapped_column(Integer, default=1) 
+    
+    # ID того, кто пригласил (храним реальный ID, а не хеш)
+    referrer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True) 
+    
+    # Текстовый код билета
+    ticket_code: Mapped[str | None] = mapped_column(String(10), nullable=True)=== ./database/models/required_channel.py ===
 from sqlalchemy import BigInteger, String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from database.base import Base
@@ -1229,7 +1504,6 @@ async def create_giveaway(
     message_id: int, prize: str, winners: int, end_time: datetime,
     media_file_id: str = None, media_type: str = None,
     sponsors: list = None,
-    # Новые флаги
     is_referral: bool = False,
     is_captcha: bool = False
 ) -> int:
@@ -1256,11 +1530,6 @@ async def create_giveaway(
     await session.commit()
     return new_gw.id
 
-async def set_predetermined_winner(session: AsyncSession, gw_id: int, winner_id: int):
-    stmt = update(Giveaway).where(Giveaway.id == gw_id).values(predetermined_winner_id=winner_id)
-    await session.execute(stmt)
-    await session.commit()
-
 async def get_giveaway_by_id(session: AsyncSession, gw_id: int) -> Giveaway | None:
     return await session.get(Giveaway, gw_id)
 
@@ -1274,15 +1543,28 @@ async def get_required_channels(session: AsyncSession, gw_id: int):
     result = await session.execute(stmt)
     return result.scalars().all()
 
-async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: int = 5, offset: int = 0):
+async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: int = 50):
     stmt = select(Giveaway).where(Giveaway.owner_id == owner_id)\
-        .order_by(desc(Giveaway.id))\
-        .limit(limit).offset(offset)
+        .order_by(desc(Giveaway.id)).limit(limit)
     result = await session.execute(stmt)
     return result.scalars().all()
 
+async def set_predetermined_winner(session: AsyncSession, gw_id: int, winner_id: int):
+    stmt = update(Giveaway).where(Giveaway.id == gw_id).values(predetermined_winner_id=winner_id)
+    await session.execute(stmt)
+    await session.commit()
+
 async def count_giveaways_by_owner(session: AsyncSession, owner_id: int) -> int:
     stmt = select(func.count(Giveaway.id)).where(Giveaway.owner_id == owner_id)
+    return await session.scalar(stmt)
+
+# --- НОВАЯ ФУНКЦИЯ ---
+async def count_giveaways_by_status(session: AsyncSession, owner_id: int, status: str) -> int:
+    """Считает количество розыгрышей определенного статуса у владельца"""
+    stmt = select(func.count(Giveaway.id)).where(
+        Giveaway.owner_id == owner_id,
+        Giveaway.status == status
+    )
     return await session.scalar(stmt)=== ./database/requests/channel_repo.py ===
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -1338,63 +1620,46 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.dialects.postgresql import insert
 from database.models.participant import Participant
 from database.models.giveaway import Giveaway
+from database.models.winner import Winner # <---
 
 async def add_participant(session: AsyncSession, user_id: int, giveaway_id: int) -> bool:
-    """Добавляет участника. Возвращает True, если добавлен новый."""
     stmt = insert(Participant).values(user_id=user_id, giveaway_id=giveaway_id).on_conflict_do_nothing()
     result = await session.execute(stmt)
     await session.commit()
     return result.rowcount > 0
 
 async def get_participant_ids(session: AsyncSession, giveaway_id: int) -> list[int]:
-    """Список ID всех участников розыгрыша"""
     stmt = select(Participant.user_id).where(Participant.giveaway_id == giveaway_id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 async def get_participants_count(session: AsyncSession, giveaway_id: int) -> int:
-    """Количество участников"""
     stmt = select(func.count(Participant.user_id)).where(Participant.giveaway_id == giveaway_id)
     return await session.scalar(stmt)
 
 async def get_user_participation_stats(session: AsyncSession, user_id: int) -> dict:
-    """Статистика для дашборда (сколько активных, сколько побед)"""
-    # 1. Активные участия
+    # 1. Активные
     active_q = select(func.count(Participant.giveaway_id)).join(Giveaway).where(
         Participant.user_id == user_id,
         Giveaway.status == "active"
     )
     active = await session.scalar(active_q)
     
-    # 2. Победы (ищем ID юзера в строке winner_ids)
-    # Это упрощенный подсчет. В идеале нужна таблица Winners.
-    # Но для MVP используем поиск по строке:
-    wins_q = select(func.count(Giveaway.id)).where(
-        Giveaway.winner_ids.ilike(f"%{user_id}%")
-    )
+    # 2. Победы (Теперь через таблицу Winner - быстро и надежно)
+    wins_q = select(func.count(Winner.giveaway_id)).where(Winner.user_id == user_id)
     wins = await session.scalar(wins_q)
 
     return {"active": active or 0, "wins": wins or 0}
 
-# --- НОВЫЕ ФУНКЦИИ ДЛЯ СПИСКА ---
 async def get_user_participations_detailed(session: AsyncSession, user_id: int, status: str = None, limit: int = 5, offset: int = 0):
-    """
-    Возвращает список объектов Giveaway, в которых участвует user_id.
-    Сортировка: сначала новые.
-    """
     stmt = select(Giveaway).join(Participant).where(Participant.user_id == user_id)
-    
     if status:
         stmt = stmt.where(Giveaway.status == status)
-    
-    # Сортируем по дате окончания (сначала свежие)
     stmt = stmt.order_by(desc(Giveaway.finish_time)).limit(limit).offset(offset)
-    
     result = await session.execute(stmt)
     return result.scalars().all()
 
 async def count_user_participations(session: AsyncSession, user_id: int, status: str = None) -> int:
-    """Считает кол-во розыгрышей для пагинации"""
     stmt = select(func.count(Giveaway.id)).join(Participant).where(Participant.user_id == user_id)
     if status:
         stmt = stmt.where(Giveaway.status == status)
@@ -1409,7 +1674,8 @@ from .models.user import User
 from .models.giveaway import Giveaway
 from .models.participant import Participant
 from .models.channel import Channel
-from .models.required_channel import GiveawayRequiredChannel # <--- ДОБАВЛЕНО
+from .models.required_channel import GiveawayRequiredChannel
+from .models.winner import Winner # <--- НОВОЕ
 
 engine = create_async_engine(
     url=config.DB_DNS,
@@ -1425,85 +1691,1376 @@ async_session_maker = async_sessionmaker(
 from sqlalchemy.orm import DeclarativeBase
 
 class Base(DeclarativeBase):
-    pass=== ./handlers/creator/wizard_finish.py ===
+    pass=== ./handlers/creator/constructor/publication.py ===
 from datetime import datetime
-from aiogram import Router, types, Bot, F
+from aiogram import Router, types, F, Bot
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+import logging
 
-from handlers.creator.wizard_start import GiveawayWizard
 from database.requests.giveaway_repo import create_giveaway
-from database.requests.user_repo import register_user
+from keyboards.inline.constructor import constructor_main_kb
 from keyboards.inline.participation import join_keyboard
 from core.tools.scheduler import scheduler
 from core.logic.game_actions import finish_giveaway_task
 from core.tools.formatters import format_giveaway_caption
+from core.tools.timezone import to_utc, strip_tz
+from handlers.creator.constructor.control_message import get_control_hint, update_control_message
+from handlers.creator.constructor.message_manager import get_message_manager, update_message_manager
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
-@router.callback_query(GiveawayWizard.confirmation, F.data == "wizard_confirm")
-async def finish_creation(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+async def send_preview(message: types.Message, state: FSMContext, is_edit: bool = False):
+    """Отправляем предпросмотр БЕЗ кнопок"""
     data = await state.get_data()
-    finish_dt = datetime.fromisoformat(data['finish_time'])
-    bot_info = await bot.get_me()
     
-    caption = format_giveaway_caption(data['prize_text'], data['winners_count'], finish_dt, 0)
+    finish_dt = datetime.fromisoformat(data['finish_time_str'])
+    date_str = finish_dt.strftime('%d.%m %H:%M МСК')
+    
+    caption = f"{data['text']}\n\n<i>(Предпросмотр. Итоги: {date_str})</i>"
+    
+    if is_edit:
+        try:
+            if data['media_type']: 
+                await message.edit_caption(caption=caption)  # Без reply_markup
+            else: 
+                await message.edit_text(text=caption)  # Без reply_markup
+            return
+        except: 
+            await message.delete()
+
+    if data['media_type'] == 'photo': 
+        msg = await message.answer_photo(data['media_file_id'], caption=caption)  # Без reply_markup
+        logger.info(f"PREVIEW: Created photo preview")
+    elif data['media_type'] == 'video': 
+        msg = await message.answer_video(data['media_file_id'], caption=caption)  # Без reply_markup
+        logger.info(f"PREVIEW: Created video preview")
+    elif data['media_type'] == 'animation': 
+        msg = await message.answer_animation(data['media_file_id'], caption=caption)  # Без reply_markup
+        logger.info(f"PREVIEW: Created animation preview")
+    else: 
+        msg = await message.answer(text=caption)  # Без reply_markup
+        logger.info(f"PREVIEW: Created text preview")
+    
+    return msg
+
+@router.callback_query(F.data == "constr_publish")
+async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+    logger.info("PUBLISH: Publishing giveaway")
+    
+    data = await state.get_data()
+    
+    # Валидация обязательных полей
+    errors = []
+    
+    if not data.get('text'):
+        errors.append("• Не указан текст розыгрыша")
+    
+    if not data.get('main_channel'):
+        errors.append("• Не выбран основной канал")
+    
+    if not data.get('winners') or data['winners'] < 1 or data['winners'] > 50:
+        errors.append("• Некорректное количество победителей (1-50)")
+    
+    if data.get('ref_req') and data['ref_req'] > 10:
+        errors.append("• Слишком много друзей для реферальной системы (макс. 10)")
+    
+    if errors:
+        error_text = "❌ Перед публикацией нужно исправить:\n" + "\n".join(errors)
+        return await call.answer(error_text, show_alert=True)
+    
+    if not data.get('main_channel'): return await call.answer("Выберите канал!", show_alert=True)
+    
+    main_ch = data['main_channel']
+    finish_dt_msk = datetime.fromisoformat(data['finish_time_str'])
+    finish_dt_utc = to_utc(finish_dt_msk)
+    finish_dt_db = strip_tz(finish_dt_utc) 
+    
+    bot_info = await bot.get_me()
+    caption = format_giveaway_caption(data['text'], data['winners'], finish_dt_utc, 0)
     keyboard = join_keyboard(bot_info.username, 0)
-
+    
     try:
-        if data.get('media_type') == 'photo':
-            sent_msg = await bot.send_photo(data['channel_id'], data['media_file_id'], caption=caption, reply_markup=keyboard)
-        elif data.get('media_type') == 'video':
-            sent_msg = await bot.send_video(data['channel_id'], data['media_file_id'], caption=caption, reply_markup=keyboard)
+        if data['media_type'] == 'photo':
+            msg = await bot.send_photo(main_ch['id'], data['media_file_id'], caption=caption, reply_markup=keyboard)
+            logger.info(f"PUBLISH: Sent photo to channel {main_ch['id']}")
+        elif data['media_type'] == 'video':
+            msg = await bot.send_video(main_ch['id'], data['media_file_id'], caption=caption, reply_markup=keyboard)
+            logger.info(f"PUBLISH: Sent video to channel {main_ch['id']}")
         else:
-            sent_msg = await bot.send_message(data['channel_id'], text=caption, reply_markup=keyboard)
+            msg = await bot.send_message(main_ch['id'], text=caption, reply_markup=keyboard)
+            logger.info(f"PUBLISH: Sent message to channel {main_ch['id']}")
     except Exception as e:
-        return await call.answer(f"Ошибка публикации: {e}", show_alert=True)
+        return await call.answer(f"Ошибка публикации в основной: {e}", show_alert=True)
 
-    await register_user(session, call.from_user.id, call.from_user.username, call.from_user.full_name)
-
-    # --- СОХРАНЕНИЕ ---
     gw_id = await create_giveaway(
-        session,
-        owner_id=call.from_user.id,
-        channel_id=data['channel_id'],
-        message_id=sent_msg.message_id,
-        prize=data['prize_text'],
-        winners=data['winners_count'],
-        end_time=finish_dt,
-        media_file_id=data.get('media_file_id'),
-        media_type=data.get('media_type'),
-        sponsors=data.get('sponsors') # <-- Передаем список спонсоров
+        session, call.from_user.id, main_ch['id'], msg.message_id, 
+        data['text'], data['winners'], finish_dt_db,
+        data['media_file_id'], data['media_type'], 
+        data['sponsors'], 
+        is_referral=(data['ref_req'] > 0), 
+        is_captcha=data['is_captcha']
     )
 
-    await bot.edit_message_reply_markup(chat_id=data['channel_id'], message_id=sent_msg.message_id, reply_markup=join_keyboard(bot_info.username, gw_id))
+    await bot.edit_message_reply_markup(chat_id=main_ch['id'], message_id=msg.message_id, reply_markup=join_keyboard(bot_info.username, gw_id))
+    
+    for sp in data['sponsors']:
+        try:
+            await bot.forward_message(chat_id=sp['id'], from_chat_id=main_ch['id'], message_id=msg.message_id)
+            logger.info(f"FORWARD: Forwarded to sponsor {sp['id']}")
+        except: pass
 
-    scheduler.add_job(finish_giveaway_task, "date", run_date=finish_dt, kwargs={"giveaway_id": gw_id}, id=f"gw_{gw_id}", replace_existing=True)
-
-    await call.message.edit_text(f"✅ Розыгрыш #{gw_id} создан со спонсорами!")
-    await state.clear()=== ./handlers/creator/wizard_start.py ===
-from aiogram import Router, types
-from aiogram.filters import Command
+    scheduler.add_job(finish_giveaway_task, "date", run_date=finish_dt_utc, kwargs={"giveaway_id": gw_id}, id=f"gw_{gw_id}", replace_existing=True)
+    
+    # Получаем менеджер сообщений
+    manager = await get_message_manager(state)
+    
+    # Удаляем оба сообщения конструктора (Preview + Control)
+    message_ids = manager.get_all_messages_to_delete()
+    for msg_id in message_ids:
+        try:
+            logger.info(f"DELETE: Constructor message {msg_id} (publish)")
+            await bot.delete_message(call.message.chat.id, msg_id)
+        except Exception as e:
+            logger.warning(f"WARNING: Failed to delete message {msg_id}: {e}")
+    
+    link = main_ch['link'] if main_ch['link'] != 'private' else "канал"
+    success_msg = await call.message.answer(
+        f"✅ <b>Опубликовано!</b>\n<a href='{link}'>Перейти к посту</a>\n\n🏆 Победителей: {data['winners']}", 
+        disable_web_page_preview=True
+    )
+    
+    # Сохраняем ID сообщения об успехе как временное
+    manager.add_temp_message(success_msg)
+    await update_message_manager(state, manager)
+    
+    # Очищаем состояние
+    await state.clear()=== ./handlers/creator/constructor/referral_selector.py ===
+from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from keyboards.inline.constructor import referral_selector_kb
+from handlers.creator.constructor.publication import send_preview
+from handlers.creator.constructor.structure import ConstructorState
 
 router = Router()
 
-class GiveawayWizard(StatesGroup):
-    waiting_for_text = State()
-    waiting_for_channel = State()
-    waiting_for_sponsors = State() # <--- НОВОЕ СОСТОЯНИЕ
-    waiting_for_winners = State()
-    waiting_for_time = State()
-    confirmation = State()
+@router.callback_query(F.data == "constr_ref_menu")
+async def ref_menu(call: types.CallbackQuery):
+    await call.message.edit_reply_markup(reply_markup=referral_selector_kb())
 
+@router.callback_query(F.data.startswith("constr_set_ref:"))
+async def set_ref(call: types.CallbackQuery, state: FSMContext):
+    try:
+        ref_count = int(call.data.split(":")[-1])
+        await state.update_data(ref_req=ref_count)
+        
+        # Обновляем превью
+        await send_preview(call.message, state, is_edit=True)
+        
+        ref_text = "Выключено" if ref_count == 0 else f"{ref_count} друзей"
+        await call.answer(f"✅ Реферальная система: {ref_text}")
+        
+    except ValueError:
+        await call.answer("❌ Ошибка выбора", show_alert=True)
+    except Exception as e:
+        await call.answer("❌ Произошла ошибка", show_alert=True)
+        print(f"Error in set_ref: {e}")
+
+@router.message(ConstructorState.editing_referral)
+async def process_referral_input(message: types.Message, state: FSMContext):
+    """Обработка ввода количества рефералов вручную"""
+    try:
+        text = message.text.strip()
+        
+        # Проверяем, что введено число
+        if not text.isdigit():
+            return await message.answer("❌ Введите число от 0 до 10")
+        
+        ref_count = int(text)
+        
+        # Проверяем диапазон
+        if ref_count < 0 or ref_count > 10:
+            return await message.answer("❌ Количество друзей должно быть от 0 до 10")
+        
+        await state.update_data(ref_req=ref_count)
+        
+        # Возвращаемся к превью
+        await state.set_state(ConstructorState.init)
+        await send_preview(message, state)
+        
+        await message.answer(f"✅ Требуется друзей: {ref_count}")
+        
+    except Exception as e:
+        print(f"Error in process_referral_input: {e}")
+        await message.answer("❌ Произошла ошибка. Попробуйте снова.")
+
+@router.callback_query(F.data == "constr_set_ref_input")
+async def ask_referral_input(call: types.CallbackQuery, state: FSMContext):
+    """Предложение ввести количество рефералов вручную"""
+    await state.set_state(ConstructorState.editing_referral)
+    await call.message.edit_text("🔗 <b>Введите количество друзей</b> (0-10):")=== ./handlers/creator/constructor/channels_add.py ===
+from aiogram import Router, types, F, Bot
+from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from database.requests.channel_repo import add_channel
+from keyboards.inline.dashboard import skip_link_kb
+from handlers.creator.constructor.structure import ConstructorState
+from handlers.creator.constructor.channels_select import show_channels_selection
+from handlers.creator.constructor.message_manager import get_message_manager, update_message_manager
+import logging
+
+logger = logging.getLogger(__name__)
+
+router = Router()
+
+@router.callback_query(F.data == "add_new_channel_constr")
+async def ask_channel_constr(call: types.CallbackQuery, state: FSMContext):
+    logger.info("ADD_CHANNEL: Started adding new channel")
+    
+    await state.set_state(ConstructorState.adding_channel)
+    
+    # Получаем менеджер сообщений
+    manager = await get_message_manager(state)
+    manager.add_temp_message(call.message)
+    await update_message_manager(state, manager)
+    
+    await call.message.delete()
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_to_selector")]])
+    new_msg = await call.message.answer("📢 Перешлите пост из канала (или отправьте @username):", reply_markup=kb)
+    logger.info(f"ADD_CHANNEL: Created temp message {new_msg.message_id}")
+    manager.add_temp_message(new_msg)
+    await update_message_manager(state, manager)
+
+# --- ЛОГИКА ОТМЕНЫ ---
+@router.callback_query(F.data == "cancel_to_selector")
+async def cancel_to_selector(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+    logger.info("ADD_CHANNEL: Cancelled adding channel")
+    
+    # Получаем менеджер сообщений
+    manager = await get_message_manager(state)
+    
+    # Очищаем ВСЕ временные данные
+    await state.update_data(
+        temp_channel=None, 
+        generated_link=None,
+        channel_selector_mode=None
+    )
+    
+    # Удаляем все сообщения
+    message_ids = manager.get_all_messages_to_delete()
+    for msg_id in message_ids:
+        try:
+            logger.info(f"ADD_CHANNEL: Deleting message {msg_id}")
+            await bot.delete_message(call.message.chat.id, msg_id)
+        except Exception as e:
+            logger.warning(f"ADD_CHANNEL: Failed to delete message {msg_id}: {e}")
+    
+    # Возвращаемся в меню выбора
+    await state.set_state(ConstructorState.init)
+    
+    # Показываем список с уведомлением
+    data = await state.get_data()
+    mode = data.get('channel_selector_mode', 'main')
+    
+    if mode == 'main':
+        await show_channels_selection(call.message, state, session, call.from_user.id, "main", "❌ Добавление отменено. Выберите основной канал:")
+    else:
+        await show_channels_selection(call.message, state, session, call.from_user.id, "sponsor", "❌ Добавление отменено. Выберите спонсоров:")
+
+@router.message(ConstructorState.adding_channel)
+async def process_new_channel_step1_constr(message: types.Message, state: FSMContext, bot: Bot):
+    logger.info("ADD_CHANNEL: Processing new channel step 1")
+    
+    # Получаем менеджер сообщений
+    manager = await get_message_manager(state)
+    manager.add_temp_message(message)
+    await update_message_manager(state, manager)
+    
+    chat_id, title, username = None, "Title", None
+    kb_cancel = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_to_selector")]])
+
+    if message.forward_from_chat:
+        chat_id = message.forward_from_chat.id
+        title = message.forward_from_chat.title
+        username = message.forward_from_chat.username
+    elif message.text and message.text.startswith("@"):
+        try:
+            chat = await bot.get_chat(message.text)
+            chat_id = chat.id
+            title = chat.title
+            username = chat.username
+        except: 
+            return await message.answer("❌ Канал не найден. Проверьте @username.", reply_markup=kb_cancel)
+    
+    if not chat_id: 
+        return await message.answer("❌ Ошибка. Перешлите пост или отправьте @username.", reply_markup=kb_cancel)
+
+    try:
+        member = await bot.get_chat_member(chat_id, bot.id)
+        if member.status not in ("administrator", "creator"): 
+            raise Exception("Bot is not admin")
+    except: 
+        return await message.answer("❌ Сделайте бота админом в канале!", reply_markup=kb_cancel)
+
+    # Генерация ссылки
+    generated_link = None
+    try:
+        invite = await bot.create_chat_invite_link(chat_id, name="RozPlay Bot")
+        generated_link = invite.invite_link
+    except Exception as e:
+        logger.warning(f"ADD_CHANNEL: Failed to generate invite link: {e}")
+        generated_link = f"https://t.me/{username}" if username else None
+
+    # Сохраняем во временное хранилище (ЕЩЕ НЕ В БД)
+    await state.update_data(
+        temp_channel={"id": chat_id, "title": title, "username": username},
+        generated_link=generated_link
+    )
+    await state.set_state(ConstructorState.adding_channel_link)
+    
+    text = f"✅ Канал <b>{title}</b> найден.\n"
+    kb_builder = InlineKeyboardBuilder()
+    if generated_link:
+        text += f"\n🔗 Я создал ссылку: {generated_link}\nИспользовать её?"
+        kb_builder.button(text="✅ Да, использовать", callback_data="use_generated_link")
+    else:
+        text += "\n🔗 Пришлите инвайт-ссылку вручную:"
+        
+    kb_builder.button(text="❌ Отмена", callback_data="cancel_to_selector")
+    kb_builder.adjust(1)
+    
+    new_msg = await message.answer(text, reply_markup=kb_builder.as_markup())
+    logger.info(f"ADD_CHANNEL: Created temp message {new_msg.message_id}")
+    manager.add_temp_message(new_msg)
+    await update_message_manager(state, manager)
+
+@router.callback_query(ConstructorState.adding_channel_link, F.data == "use_generated_link")
+async def use_gen_link_callback(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+    logger.info("ADD_CHANNEL: Using generated link")
+    
+    try:
+        data = await state.get_data()
+        ch_data = data['temp_channel']
+        link = data.get('generated_link')
+        
+        if not ch_data or not link:
+            await call.answer("❌ Ошибка данных. Начните сначала.", show_alert=True)
+            await state.set_state(ConstructorState.init)
+            return
+
+        # ВОТ ЗДЕСЬ ПРОИСХОДИТ СОХРАНЕНИЕ В БД
+        await add_channel(session, call.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link)
+        
+        await state.set_state(ConstructorState.init)
+        await call.message.delete()
+        
+        # Получаем менеджер сообщений
+        manager = await get_message_manager(state)
+        
+        # Удаляем временные сообщения
+        message_ids = manager.get_all_messages_to_delete()
+        for msg_id in message_ids:
+            try:
+                logger.info(f"ADD_CHANNEL: Deleting message {msg_id}")
+                await bot.delete_message(call.message.chat.id, msg_id)
+            except Exception as e:
+                logger.warning(f"ADD_CHANNEL: Failed to delete message {msg_id}: {e}")
+        
+        # Показываем список каналов
+        data = await state.get_data()
+        mode = data.get('channel_selector_mode', 'main')
+        
+        if mode == 'main':
+            await show_channels_selection(call.message, state, session, call.from_user.id, "main", f"✅ Канал <b>{ch_data['title']}</b> добавлен! Выберите основной канал:")
+        else:
+            await show_channels_selection(call.message, state, session, call.from_user.id, "sponsor", f"✅ Канал <b>{ch_data['title']}</b> добавлен! Выберите спонсоров:")
+        
+    except Exception as e:
+        logger.error(f"ADD_CHANNEL: Error in use_gen_link_callback: {e}")
+        await call.answer("❌ Произошла ошибка. Попробуйте снова.", show_alert=True)
+        await state.set_state(ConstructorState.init)
+
+@router.message(ConstructorState.adding_channel_link)
+async def process_link_text_constr(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    logger.info("ADD_CHANNEL: Processing link text")
+    
+    # Получаем менеджер сообщений
+    manager = await get_message_manager(state)
+    manager.add_temp_message(message)
+    await update_message_manager(state, manager)
+    
+    link = message.text.strip()
+    
+    # Валидация ссылки
+    if "t.me" not in link and not link.startswith("https://"):
+        return await message.answer("❌ Введите корректную ссылку (должна содержать t.me или быть полной ссылкой).")
+    
+    # Проверяем, не является ли ссылка ботом
+    if "bot" in link.lower():
+        return await message.answer("❌ Ссылка не должна вести на бота!")
+        
+    # Проверяем длину ссылки
+    if len(link) > 255:
+        return await message.answer("❌ Ссылка слишком длинная!")
+    
+    data = await state.get_data()
+    ch_data = data.get('temp_channel')
+    if not ch_data:
+        return await message.answer("❌ Произошла ошибка. Начните сначала.")
+    
+    try:
+        # ВОТ ЗДЕСЬ ПРОИСХОДИТ СОХРАНЕНИЕ В БД
+        await add_channel(session, message.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link)
+        
+        try: 
+            await message.delete()
+        except: 
+            pass
+        
+        await state.set_state(ConstructorState.init)
+        
+        # Получаем менеджер сообщений
+        manager = await get_message_manager(state)
+        
+        # Удаляем временные сообщения
+        message_ids = manager.get_all_messages_to_delete()
+        for msg_id in message_ids:
+            try:
+                logger.info(f"ADD_CHANNEL: Deleting message {msg_id}")
+                await bot.delete_message(message.chat.id, msg_id)
+            except Exception as e:
+                logger.warning(f"ADD_CHANNEL: Failed to delete message {msg_id}: {e}")
+        
+        # Показываем список каналов
+        data = await state.get_data()
+        mode = data.get('channel_selector_mode', 'main')
+        
+        if mode == 'main':
+            await show_channels_selection(message, state, session, message.from_user.id, "main", f"✅ Канал <b>{ch_data['title']}</b> добавлен! Выберите основной канал:")
+        else:
+            await show_channels_selection(message, state, session, message.from_user.id, "sponsor", f"✅ Канал <b>{ch_data['title']}</b> добавлен! Выберите спонсоров:")
+        
+    except Exception as e:
+        logger.error(f"ADD_CHANNEL: Error in process_link_text_constr: {e}")
+        await message.answer("❌ Произошла ошибка при сохранении. Попробуйте снова.")=== ./handlers/creator/constructor/start_content.py ===
+from datetime import datetime, timedelta
+from aiogram import Router, types, F, Bot
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import logging
+
+from core.security.sanitizer import sanitize_text, get_message_html
+from keyboards.inline.dashboard import start_menu_kb
+from core.tools.timezone import get_now_msk
+from handlers.creator.constructor.structure import ConstructorState, safe_edit_to_text
+from handlers.creator.constructor.publication import send_preview
+from handlers.creator.constructor.control_message import (
+    send_initial_control_message, 
+    update_control_message,
+    get_control_hint
+)
+from handlers.creator.constructor.message_manager import get_message_manager, update_message_manager
+from keyboards.inline.constructor import constructor_main_kb
+
+logger = logging.getLogger(__name__)
+
+router = Router()
+
+@router.callback_query(F.data == "create_gw_init")
 @router.message(Command("new"))
-async def start_wizard(message: types.Message, state: FSMContext):
-    await state.set_state(GiveawayWizard.waiting_for_text)
-    await message.answer(
-        "📝 <b>Создание розыгрыша (Шаг 1/6)</b>\n\n"
-        "Пришлите текст поста или фото с описанием приза."
-    )=== ./handlers/creator/time_picker.py ===
+async def start_constructor(event: types.Message | types.CallbackQuery, state: FSMContext):
+    logger.info("START: Constructor initialized")
+    
+    # Очищаем предыдущее состояние и сообщения
+    await state.clear()
+    
+    default_finish = get_now_msk() + timedelta(hours=24)
+    default_data = {
+        "text": None, "media_file_id": None, "media_type": None,
+        "main_channel": None, "sponsors": [],
+        "finish_time_str": default_finish.isoformat(),
+        "winners": 1, 
+        "ref_req": 0, 
+        "is_captcha": False,
+        "message_manager_data": {}  # Инициализируем пустым словарем
+    }
+    await state.set_data(default_data)
+    await state.set_state(ConstructorState.editing_content)
+    
+    # Текст для инструкции
+    instruction_text = await get_control_hint('content')
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_creation")]])
+    
+    if isinstance(event, types.CallbackQuery): 
+        await safe_edit_to_text(event.message, instruction_text, kb)
+    else: 
+        # Запоминаем ID сообщения с инструкцией
+        instruction_msg = await event.answer(instruction_text, reply_markup=kb)
+        logger.info(f"START: Created instruction message {instruction_msg.message_id}")
+        
+        # Сохраняем ID этого сообщения для последующего удаления
+        await state.update_data(instruction_message_id=instruction_msg.message_id)
+
+@router.callback_query(F.data == "cancel_creation")
+async def cancel_creation(call: types.CallbackQuery, state: FSMContext, bot: Bot):
+    logger.info("CANCEL: Constructor cancelled")
+    
+    # Получаем менеджер сообщений
+    manager = await get_message_manager(state)
+    
+    # Удаляем все сообщения
+    message_ids = manager.get_all_messages_to_delete()
+    for msg_id in message_ids:
+        try:
+            logger.info(f"CANCEL: Deleting message {msg_id}")
+            await bot.delete_message(call.message.chat.id, msg_id)
+        except:
+            pass
+    
+    # Удаляем сообщение с инструкцией (если есть)
+    data = await state.get_data()
+    instruction_msg_id = data.get('instruction_message_id')
+    if instruction_msg_id:
+        try:
+            logger.info(f"CANCEL: Deleting instruction message {instruction_msg_id}")
+            await bot.delete_message(call.message.chat.id, instruction_msg_id)
+        except:
+            pass
+    
+    # Очищаем состояние
+    await state.clear()
+    
+    await call.message.answer("❌ Создание отменено.", reply_markup=start_menu_kb())
+
+@router.message(ConstructorState.editing_content)
+async def receive_content(message: types.Message, state: FSMContext):
+    logger.info("RECEIVE: Content received")
+    
+    # Получаем менеджер сообщений
+    manager = await get_message_manager(state)
+    
+    # Сохраняем ID текущего сообщения как временное
+    manager.add_temp_message(message)
+    await update_message_manager(state, manager)
+    
+    media_id, media_type = None, None
+    if message.photo: media_id, media_type = message.photo[-1].file_id, "photo"
+    elif message.video: media_id, media_type = message.video.file_id, "video"
+    elif message.animation: media_id, media_type = message.animation.file_id, "animation"
+
+    html_content = get_message_html(message)
+    
+    if not media_type and (not html_content or len(html_content) < 5):
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_creation")]])
+        return await message.answer(
+            "⚠️ <b>Текст слишком короткий!</b>\nЭто точно рекламный пост? Если да — напишите подробнее.\nЕсли ошиблись — пришлите заново.",
+            reply_markup=kb
+        )
+
+    if not html_content and not media_type:
+        return await message.answer("❌ В посте должен быть текст или медиа.")
+    
+    safe_text = sanitize_text(html_content)
+    await state.update_data(text=safe_text, media_file_id=media_id, media_type=media_type)
+    
+    await state.set_state(ConstructorState.init)
+    
+    # Создаем два сообщения: Preview и Control
+    
+    # 1. Preview (БЕЗ кнопок)
+    preview_msg = await send_preview(message, state)
+    if preview_msg:
+        manager.set_preview_message(preview_msg)
+    
+    # 2. Control (с кнопками и подсказками)
+    control_text = await get_control_hint('main_channel')
+    kb = constructor_main_kb(
+        "Установите время", 1, 0, False, False, 0
+    )
+    control_msg = await send_initial_control_message(
+        message.bot, state, message.chat.id, control_text, kb
+    )
+    
+    manager.set_control_message(control_msg)
+    await update_message_manager(state, manager)
+    
+    # Удаляем ВРЕМЕННЫЕ сообщения (оставляем Preview и Control)
+    for msg_id in manager.temp_messages:
+        try:
+            logger.info(f"RECEIVE: Deleting temp message {msg_id}")
+            await message.bot.delete_message(message.chat.id, msg_id)
+        except:
+            pass
+    
+    # Удаляем начальное сообщение с подсказкой
+    data = await state.get_data()
+    instruction_msg_id = data.get('instruction_message_id')
+    if instruction_msg_id:
+        try:
+            logger.info(f"RECEIVE: Deleting instruction message {instruction_msg_id}")
+            await message.bot.delete_message(message.chat.id, instruction_msg_id)
+        except Exception as e:
+            logger.warning(f"RECEIVE: Failed to delete instruction message {instruction_msg_id}: {e}")
+    
+    # Удаляем сообщение пользователя с контентом
+    try:
+        logger.info(f"RECEIVE: Deleting user content message {message.message_id}")
+        await message.delete()
+    except Exception as e:
+        logger.warning(f"RECEIVE: Failed to delete user content message: {e}")
+
+@router.callback_query(ConstructorState.confirm_short_text, F.data == "confirm_short_text")
+async def confirm_short(call: types.CallbackQuery, state: FSMContext):
+    logger.info("CONFIRM: Short text confirmed")
+    
+    data = await state.get_data()
+    await state.update_data(
+        text=data['temp_text'], 
+        media_file_id=data['temp_media_id'], 
+        media_type=data['temp_media_type']
+    )
+    await state.set_state(ConstructorState.init)
+    
+    # Получаем менеджер сообщений
+    manager = await get_message_manager(state)
+    
+    # Обновляем только превью (не трогаем контроль)
+    preview_msg = await send_preview(call.message, state)
+    if preview_msg:
+        manager.set_preview_message(preview_msg)
+        await update_message_manager(state, manager)
+    
+    # Удаляем старое сообщение
+    try:
+        logger.info(f"CONFIRM: Deleting old message {call.message.message_id}")
+        await call.message.delete()
+    except Exception as e:
+        logger.warning(f"CONFIRM: Failed to delete old message: {e}")
+
+@router.callback_query(ConstructorState.confirm_short_text, F.data == "retry_content")
+async def retry_short(call: types.CallbackQuery, state: FSMContext):
+    logger.info("RETRY: Retrying content")
+    await state.set_state(ConstructorState.editing_content)
+    await call.message.edit_text("✏️ Хорошо, пришлите исправленный (более длинный) пост:")=== ./handlers/creator/constructor/structure.py ===
+from aiogram.fsm.state import State, StatesGroup
+from aiogram import types
+from aiogram.exceptions import TelegramBadRequest
+
+class ConstructorState(StatesGroup):
+    init = State()
+    editing_content = State()
+    confirm_short_text = State() 
+    adding_channel = State()
+    adding_channel_link = State()
+    editing_winners = State()  # Новое состояние для ввода победителей вручную
+    editing_referral = State() # Новое состояние для ввода рефералов вручную
+
+async def safe_edit_to_text(message: types.Message, text: str, reply_markup=None):
+    """
+    Безопасно переключает сообщение в текстовый режим.
+    """
+    try:
+        if message.photo or message.video or message.animation or message.document:
+            await message.delete()
+            await message.answer(text, reply_markup=reply_markup)
+        else:
+            await message.edit_text(text, reply_markup=reply_markup)
+    except TelegramBadRequest:
+        try: await message.edit_text(text, reply_markup=reply_markup)
+        except: pass
+    except Exception:
+        await message.answer(text, reply_markup=reply_markup)=== ./handlers/creator/constructor/message_manager.py ===
+from aiogram import types
+from aiogram.fsm.context import FSMContext
+from typing import List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+class MessageManager:
+    """Класс для управления сообщениями в конструкторе"""
+    
+    def __init__(self):
+        self.preview_message_id = None      # ID сообщения предпросмотра
+        self.control_message_id = None      # ID сообщения управления
+        self.temp_messages = []            # Временные сообщения для удаления
+    
+    def set_preview_message(self, message: types.Message):
+        """Устанавливаем ID сообщения предпросмотра"""
+        self.preview_message_id = message.message_id
+        logger.info(f"SET: Preview message ID: {message.message_id}")
+    
+    def set_control_message(self, message: types.Message):
+        """Устанавливаем ID сообщения управления"""
+        self.control_message_id = message.message_id
+        logger.info(f"SET: Control message ID: {message.message_id}")
+    
+    def add_temp_message(self, message: types.Message):
+        """Добавляем временное сообщение для удаления"""
+        self.temp_messages.append(message.message_id)
+        logger.info(f"ADD: Temp message ID: {message.message_id}")
+    
+    async def delete_temp_messages(self, bot, chat_id: int):
+        """Удаляем все временные сообщения"""
+        for msg_id in self.temp_messages[:]:  # Копия списка, чтобы не было проблем при удалении
+            try:
+                logger.info(f"DELETE: Temp message {msg_id}")
+                await bot.delete_message(chat_id, msg_id)
+                self.temp_messages.remove(msg_id)
+            except Exception as e:
+                logger.warning(f"WARNING: Failed to delete temp message {msg_id}: {e}")
+    
+    def get_all_messages_to_delete(self) -> List[int]:
+        """Получаем все ID сообщений для удаления"""
+        result = []
+        if self.preview_message_id:
+            result.append(self.preview_message_id)
+        if self.control_message_id:
+            result.append(self.control_message_id)
+        result.extend(self.temp_messages)
+        logger.info(f"GET: Messages to delete: {result}")
+        return result
+    
+    def clear(self):
+        """Очищаем все данные"""
+        self.preview_message_id = None
+        self.control_message_id = None
+        self.temp_messages = []
+        logger.info("CLEAR: All message IDs cleared")
+    
+    def to_dict(self) -> dict:
+        """Преобразуем в словарь для сериализации"""
+        result = {
+            'preview_message_id': self.preview_message_id,
+            'control_message_id': self.control_message_id,
+            'temp_messages': self.temp_messages
+        }
+        logger.debug(f"SERIALIZE: Message IDs: {result}")
+        return result
+    
+    @classmethod
+    def from_dict(cls, data: dict):
+        """Создаем из словаря"""
+        manager = cls()
+        manager.preview_message_id = data.get('preview_message_id')
+        manager.control_message_id = data.get('control_message_id')
+        manager.temp_messages = data.get('temp_messages', [])
+        logger.debug(f"DESERIALIZE: Message IDs: {data}")
+        return manager
+
+async def get_message_manager(state: FSMContext) -> MessageManager:
+    """Получаем менеджер сообщений из состояния"""
+    data = await state.get_data()
+    if 'message_manager_data' not in data:
+        manager = MessageManager()
+        await state.update_data(message_manager_data=manager.to_dict())
+        logger.info("NEW: Created new MessageManager")
+        return manager
+    
+    logger.info("GET: Retrieved existing MessageManager")
+    return MessageManager.from_dict(data['message_manager_data'])
+
+async def update_message_manager(state: FSMContext, manager: MessageManager):
+    """Обновляем менеджер сообщений в состоянии"""
+    await state.update_data(message_manager_data=manager.to_dict())
+    logger.info("UPDATE: State updated with MessageManager")=== ./handlers/creator/constructor/settings.py ===
+from aiogram import Router, types, F, Bot
+from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+from database.models.user import User
+from keyboards.inline.constructor import winners_selector_kb, referral_selector_kb, constructor_main_kb
+from handlers.creator.constructor.publication import send_preview
+from handlers.creator.constructor.control_message import get_control_hint, update_control_message
+from handlers.creator.constructor.structure import ConstructorState
+
+router = Router()
+
+@router.callback_query(F.data == "constr_edit_content")
+async def ask_new_content(call: types.CallbackQuery, state: FSMContext):
+    await state.set_state(ConstructorState.editing_content)
+    hint_text = await get_control_hint('content')
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="constr_back_main")]])
+    await call.message.edit_text(hint_text, reply_markup=kb)
+
+@router.callback_query(F.data == "constr_winners_menu")
+async def winners_menu(call: types.CallbackQuery):
+    await call.message.edit_reply_markup(reply_markup=winners_selector_kb())
+
+@router.callback_query(F.data.startswith("constr_set_winners:"))
+async def set_winners(call: types.CallbackQuery, state: FSMContext, bot: Bot):
+    winners_count = int(call.data.split(":")[-1])
+    await state.update_data(winners=winners_count)
+    
+    # Обновляем панель управления
+    hint_text = await get_control_hint('publish')
+    kb = constructor_main_kb(
+        "Установите время", winners_count, 0, False, True, 0
+    )
+    await update_control_message(bot, state, call.message.chat.id, hint_text, kb)
+    
+    # Обновляем предпросмотр (БЕЗ кнопок)
+    from datetime import datetime
+    data = await state.get_data()
+    finish_dt = datetime.fromisoformat(data['finish_time_str'])
+    date_str = finish_dt.strftime('%d.%m %H:%M МСК')
+    caption = f"{data['text']}\n\n<i>(Предпросмотр. Итоги: {date_str})</i>"
+    
+    from handlers.creator.constructor.message_manager import get_message_manager
+    manager = await get_message_manager(state)
+    if manager.preview_message_id:
+        try:
+            if data['media_type'] == 'photo':
+                await bot.edit_message_caption(
+                    chat_id=call.message.chat.id,
+                    message_id=manager.preview_message_id,
+                    caption=caption
+                )
+            else:
+                await bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=manager.preview_message_id,
+                    text=caption
+                )
+        except Exception as e:
+            print(f"Error updating preview: {e}")
+    
+    await call.answer(f"✅ Выбрано победителей: {winners_count}")
+
+@router.callback_query(F.data == "constr_ref_menu")
+async def ref_menu(call: types.CallbackQuery):
+    await call.message.edit_reply_markup(reply_markup=referral_selector_kb())
+
+@router.callback_query(F.data.startswith("constr_set_ref:"))
+async def set_ref(call: types.CallbackQuery, state: FSMContext, bot: Bot):
+    count = int(call.data.split(":")[-1])
+    await state.update_data(ref_req=count)
+    
+    # Обновляем панель управления
+    hint_text = await get_control_hint('publish')
+    kb = constructor_main_kb(
+        "Установите время", 1, count, False, True, 0
+    )
+    await update_control_message(bot, state, call.message.chat.id, hint_text, kb)
+    
+    ref_text = "Выключено" if count == 0 else f"{count} друзей"
+    await call.answer(f"✅ Реферальная система: {ref_text}")
+
+@router.callback_query(F.data == "constr_toggle_cap")
+async def toggle_cap(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+    data = await state.get_data()
+    if not data['is_captcha']:
+        user = await session.get(User, call.from_user.id)
+        if not user or not user.is_premium:
+            return await call.answer("🔒 Функция доступна только с Premium!", show_alert=True)
+            
+    await state.update_data(is_captcha=not data['is_captcha'])
+    
+    # Обновляем панель управления
+    hint_text = await get_control_hint('publish')
+    kb = constructor_main_kb(
+        "Установите время", 1, 0, not data['is_captcha'], True, 0
+    )
+    await update_control_message(bot, state, call.message.chat.id, hint_text, kb)
+    
+    status = "ВКЛ" if not data['is_captcha'] else "Выкл"
+    await call.answer(f"✅ Капча: {status}")
+
+@router.callback_query(F.data == "constr_back_main")
+async def back_to_main(call: types.CallbackQuery, state: FSMContext, bot: Bot):
+    # Обновляем панель управления
+    hint_text = await get_control_hint('default')
+    kb = constructor_main_kb("Установите время", 1, 0, False, False, 0)
+    await update_control_message(bot, state, call.message.chat.id, hint_text, kb)=== ./handlers/creator/constructor/winners_selector.py ===
+from aiogram import Router, types, F, Bot
+from aiogram.fsm.context import FSMContext
+from keyboards.inline.constructor import winners_selector_kb, constructor_main_kb
+from handlers.creator.constructor.publication import send_preview
+from handlers.creator.constructor.structure import ConstructorState
+from handlers.creator.constructor.control_message import get_control_hint, update_control_message
+from handlers.creator.constructor.message_manager import get_message_manager, update_message_manager
+
+router = Router()
+
+@router.callback_query(F.data == "constr_winners_menu")
+async def winners_menu(call: types.CallbackQuery):
+    await call.message.edit_reply_markup(reply_markup=winners_selector_kb())
+
+@router.callback_query(F.data.startswith("constr_set_winners:"))
+async def set_winners(call: types.CallbackQuery, state: FSMContext, bot: Bot):
+    winners_count = int(call.data.split(":")[-1])
+    await state.update_data(winners=winners_count)
+    
+    # Обновляем панель управления
+    hint_text = await get_control_hint('publish')
+    kb = constructor_main_kb(
+        "Установите время", winners_count, 0, False, True, 0
+    )
+    await update_control_message(bot, state, call.message.chat.id, hint_text, kb)
+    
+    # Обновляем предпросмотр (БЕЗ кнопок)
+    from datetime import datetime
+    data = await state.get_data()
+    finish_dt = datetime.fromisoformat(data['finish_time_str'])
+    date_str = finish_dt.strftime('%d.%m %H:%M МСК')
+    caption = f"{data['text']}\n\n<i>(Предпросмотр. Итоги: {date_str})</i>"
+    
+    manager = await get_message_manager(state)
+    if manager.preview_message_id:
+        try:
+            if data['media_type'] == 'photo':
+                await bot.edit_message_caption(
+                    chat_id=call.message.chat.id,
+                    message_id=manager.preview_message_id,
+                    caption=caption
+                )
+            else:
+                await bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=manager.preview_message_id,
+                    text=caption
+                )
+        except Exception as e:
+            print(f"Error updating preview: {e}")
+    
+    await call.answer(f"✅ Выбрано победителей: {winners_count}")
+
+@router.message(ConstructorState.editing_winners)
+async def process_winners_input(message: types.Message, state: FSMContext, bot: Bot):
+    """Обработка ввода количества победителей вручную"""
+    try:
+        # Получаем менеджер сообщений
+        manager = await get_message_manager(state)
+        manager.add_temp_message(message)
+        await update_message_manager(state, manager)
+        
+        text = message.text.strip()
+        
+        # Проверяем, что введено число
+        if not text.isdigit():
+            return await message.answer("❌ Введите число от 1 до 50")
+        
+        winners_count = int(text)
+        
+        # Проверяем диапазон
+        if winners_count < 1 or winners_count > 50:
+            return await message.answer("❌ Количество победителей должно быть от 1 до 50")
+        
+        await state.update_data(winners=winners_count)
+        
+        # Возвращаемся к превью
+        await state.set_state(ConstructorState.init)
+        
+        # Удаляем временные сообщения
+        message_ids = manager.get_all_messages_to_delete()
+        for msg_id in message_ids[:-1]:  # Оставляем последнее сообщение
+            try:
+                await bot.delete_message(message.chat.id, msg_id)
+            except:
+                pass
+        
+        # Обновляем панель управления
+        hint_text = await get_control_hint('publish')
+        kb = constructor_main_kb(
+            "Установите время", winners_count, 0, False, True, 0
+        )
+        await update_control_message(bot, state, message.chat.id, hint_text, kb)
+        
+        await message.answer(f"✅ Выбрано победителей: {winners_count}")
+        
+    except Exception as e:
+        print(f"Error in process_winners_input: {e}")
+        await message.answer("❌ Произошла ошибка. Попробуйте снова.")
+
+@router.callback_query(F.data == "constr_set_winners_input")
+async def ask_winners_input(call: types.CallbackQuery, state: FSMContext):
+    """Предложение ввести количество победителей вручную"""
+    await state.set_state(ConstructorState.editing_winners)
+    await call.message.edit_text("🔢 <b>Введите количество победителей</b> (1-50):")=== ./handlers/creator/constructor/__init__.py ===
+from aiogram import Router
+from . import start_content, settings, channels_select, channels_add, publication, winners_selector, referral_selector
+
+router = Router()
+
+router.include_router(start_content.router)
+router.include_router(settings.router)
+router.include_router(channels_select.router)
+router.include_router(channels_add.router)
+router.include_router(publication.router)
+router.include_router(winners_selector.router)
+router.include_router(referral_selector.router)=== ./handlers/creator/constructor/control_message.py ===
+from aiogram import Router, types, F, Bot
+from aiogram.fsm.context import FSMContext
+from keyboards.inline.constructor import constructor_main_kb
+from handlers.creator.constructor.message_manager import get_message_manager, update_message_manager
+import logging
+
+logger = logging.getLogger(__name__)
+
+async def update_control_message(
+    bot: Bot, 
+    state: FSMContext, 
+    chat_id: int, 
+    new_text: str = None, 
+    new_keyboard = None
+):
+    """Обновляем сообщение управления"""
+    manager = await get_message_manager(state)
+    
+    if not manager.control_message_id:
+        # Если сообщения нет, создаем новое
+        try:
+            logger.info(f"CREATE: New control message (chat: {chat_id})")
+            control_msg = await bot.send_message(chat_id, new_text or "Контроль", reply_markup=new_keyboard)
+            manager.set_control_message(control_msg)
+            await update_message_manager(state, manager)
+            return control_msg
+        except Exception as e:
+            logger.error(f"ERROR: Failed to create control message: {e}")
+            return None
+    
+    try:
+        # Пытаемся обновить текст
+        if new_text:
+            logger.info(f"EDIT: Control message text (ID: {manager.control_message_id})")
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=manager.control_message_id,
+                text=new_text,
+                reply_markup=new_keyboard or types.InlineKeyboardMarkup(inline_keyboard=[])
+            )
+        # Пытаемся обновить клавиатуру
+        elif new_keyboard:
+            logger.info(f"EDIT: Control message keyboard (ID: {manager.control_message_id})")
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=manager.control_message_id,
+                reply_markup=new_keyboard
+            )
+    except Exception as e:
+        logger.warning(f"WARNING: Failed to edit control message: {e}")
+        # Если не удалось обновить, создаем новое
+        try:
+            logger.info(f"REPLACE: Creating new control message (chat: {chat_id})")
+            control_msg = await bot.send_message(chat_id, new_text or "Контроль", reply_markup=new_keyboard)
+            manager.set_control_message(control_msg)
+            await update_message_manager(state, manager)
+            return control_msg
+        except Exception as e2:
+            logger.error(f"ERROR: Failed to replace control message: {e2}")
+            return None
+    
+    return None
+
+async def send_initial_control_message(
+    bot: Bot, 
+    state: FSMContext, 
+    chat_id: int, 
+    initial_text: str,
+    initial_keyboard = None
+):
+    """Отправляем начальное сообщение управления"""
+    manager = await get_message_manager(state)
+    
+    # Удаляем предыдущее сообщение управления, если есть
+    if manager.control_message_id:
+        try:
+            logger.info(f"DELETE: Old control message (ID: {manager.control_message_id})")
+            await bot.delete_message(chat_id, manager.control_message_id)
+        except Exception as e:
+            logger.warning(f"WARNING: Failed to delete old control message: {e}")
+    
+    try:
+        logger.info(f"CREATE: Initial control message (chat: {chat_id})")
+        control_msg = await bot.send_message(chat_id, initial_text, reply_markup=initial_keyboard)
+        manager.set_control_message(control_msg)
+        await update_message_manager(state, manager)
+        return control_msg
+    except Exception as e:
+        logger.error(f"ERROR: Failed to send initial control message: {e}")
+        return None
+
+# --- Подсказки для каждой кнопки ---
+
+CONTROL_HINTS = {
+    'main_channel': (
+        "📢 <b>Шаг 2: Выбор основного канала</b>\n\n"
+        "Выберите канал, где будет опубликован розыгрыш.\n\n"
+        "⚠️ <b>Важно:</b>\n"
+        "• Бот должен быть администратором\n"
+        "• Это основной канал для участников\n"
+        "• Из него будут репоститься спонсоры\n\n"
+        "Нажмите <b>Каналы</b> для выбора."
+    ),
+    
+    'sponsors': (
+        "🤝 <b>Шаг 3: Добавление спонсоров</b>\n\n"
+        "Выберите каналы, на которые нужно подписаться участникам.\n\n"
+        "✅ <b>Преимущества:</b>\n"
+        "• Увеличивает охват\n"
+        "• Повышает интерес к розыгрышу\n"
+        "• Можно добавить до 20 каналов\n\n"
+        "Нажмите <b>Спонсоры</b> для выбора."
+    ),
+    
+    'time': (
+        "⏳ <b>Шаг 4: Установка времени завершения</b>\n\n"
+        "Выберите, через сколько часов завершится розыгрыш.\n\n"
+        "📅 <b>Рекомендации:</b>\n"
+        "• Минимум: 1 час\n"
+        "• Оптимально: 24-72 часа\n"
+        "• Максимум: 30 дней\n\n"
+        "Нажмите <b>Итоги</b> для настройки."
+    ),
+    
+    'winners': (
+        "🏆 <b>Шаг 5: Количество победителей</b>\n\n"
+        "Укажите, сколько человек получат приз.\n\n"
+        "💡 <b>Советы:</b>\n"
+        "• 1-3 победителя - для небольших призов\n"
+        "• 5-10 победителей - для средних призов\n"
+        "• 20+ победителей - для крупных розыгрышей\n\n"
+        "Нажмите <b>Победители</b> для выбора."
+    ),
+    
+    'referral': (
+        "🔗 <b>Шаг 6: Реферальная система</b>\n\n"
+        "Настройте бонусы за приглашение друзей.\n\n"
+        "🎁 <b>Как работает:</b>\n"
+        "• За каждого друга +1 билет\n"
+        "• Можно установить лимит (1-10 друзей)\n"
+        "• Повышает вовлеченность\n\n"
+        "Нажмите <b>Реф</b> для настройки."
+    ),
+    
+    'captcha': (
+        "🛡 <b>Шаг 7: Защита от ботов</b>\n\n"
+        "Включите капчу для защиты от накрутки.\n\n"
+        "🔒 <b>Преимущества:</b>\n"
+        "• Отсеивает 99% ботов\n"
+        "• Только Premium пользователи\n"
+        "• Повышает качество участников\n\n"
+        "Нажмите <b>Капча</b> для включения."
+    ),
+    
+    'content': (
+        "✏️ <b>Шаг 1: Текст и медиа</b>\n\n"
+        "Измените текст описания или добавьте фото/видео.\n\n"
+        "📝 <b>Советы:</b>\n"
+        "• Используйте форматирование (жирный, курсив)\n"
+        "• Добавьте фото для лучшего восприятия\n"
+        "• Укажите условия участия\n\n"
+        "Нажмите <b>Изменить Текст/Медиа</b> для редактирования."
+    ),
+    
+    'publish': (
+        "✅ <b>Готово к публикации!</b>\n\n"
+        "Проверьте все параметры:\n"
+        "• Текст розыгрыша\n"
+        "• Канал для публикации\n"
+        "• Количество победителей\n"
+        "• Время завершения\n\n"
+        "🎯 <b>Важно:</b>\n"
+        "• После публикации изменения невозможны\n"
+        "• Розыгрыш начнется автоматически\n"
+        "• Победители определятся по завершении\n\n"
+        "Нажмите <b>ОПУБЛИКОВАТЬ</b> для запуска."
+    ),
+    
+    'default': (
+        "🎯 <b>Конструктор розыгрышей</b>\n\n"
+        "Настройте параметры розыгрыша:\n\n"
+        "1️⃣ <b>Канал:</b> Где опубликовать\n"
+        "2️⃣ <b>Спонсоры:</b> На что подписаться\n"
+        "3️⃣ <b>Итоги:</b> Когда завершить\n"
+        "4️⃣ <b>Победители:</b> Сколько человек\n"
+        "5️⃣ <b>Реф:</b> За друзей бонус\n"
+        "6️⃣ <b>Капча:</b> Защита от ботов\n\n"
+        "Выберите параметр для настройки!"
+    )
+}
+
+async def get_control_hint(key: str) -> str:
+    """Получаем подсказку по ключу"""
+    return CONTROL_HINTS.get(key, CONTROL_HINTS['default'])=== ./handlers/creator/constructor/channels_select.py ===
+from aiogram import Router, types, F, Bot
+from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
+import logging
+
+from database.requests.channel_repo import get_user_channels
+from keyboards.inline.constructor import channel_selection_kb, constructor_main_kb
+from handlers.creator.constructor.structure import safe_edit_to_text
+from handlers.creator.constructor.publication import send_preview
+from handlers.creator.constructor.control_message import get_control_hint, update_control_message
+from handlers.creator.constructor.message_manager import get_message_manager, update_message_manager
+
+logger = logging.getLogger(__name__)
+
+router = Router()
+
+async def show_channels_selection(
+    message: types.Message, 
+    state: FSMContext, 
+    session: AsyncSession, 
+    user_id: int, 
+    mode: str, 
+    text_override: str = None
+):
+    """
+    Показывает меню выбора каналов.
+    """
+    try:
+        data = await state.get_data()
+        
+        # Получаем список каналов
+        channels = await get_user_channels(session, user_id)
+        
+        if mode == 'main':
+            sel = [data['main_channel']['id']] if data.get('main_channel') else []
+            default_text = "📢 <b>Выберите основной канал:</b>"
+        else:
+            main_id = data['main_channel']['id'] if data.get('main_channel') else None
+            available = [ch for ch in channels if ch.channel_id != main_id]
+            sel = [s['id'] for s in data.get('sponsors', [])]
+            channels = available  # Используем только доступные каналы
+            default_text = "🤝 <b>Выберите спонсоров:</b>\n\nОтметьте каналы-спонсоры:"
+        
+        final_text = text_override if text_override else default_text
+        
+        kb = channel_selection_kb(channels, mode, sel)
+        
+        # Получаем менеджер сообщений
+        manager = await get_message_manager(state)
+        
+        # Удаляем предыдущие временные сообщения
+        message_ids = manager.get_all_messages_to_delete()
+        for msg_id in message_ids:
+            try:
+                logger.info(f"SELECT: Deleting message {msg_id}")
+                await message.bot.delete_message(message.chat.id, msg_id)
+            except Exception as e:
+                logger.warning(f"SELECT: Failed to delete message {msg_id}: {e}")
+        
+        # Отправляем новое сообщение и сохраняем его ID
+        new_msg = await message.answer(final_text, reply_markup=kb)
+        manager.add_temp_message(new_msg)
+        await update_message_manager(state, manager)
+        
+        logger.info(f"SELECT: Created selection message {new_msg.message_id}")
+        
+    except Exception as e:
+        logger.error(f"SELECT: Error in show_channels_selection: {e}")
+        # Если что-то пошло не так, просто возвращаемся в главное меню
+        try:
+            await message.delete()
+        except: pass
+        
+        from handlers.creator.constructor.structure import ConstructorState
+        from keyboards.inline.dashboard import start_menu_kb
+        await state.set_state(ConstructorState.init)
+        await message.answer("❌ Произошла ошибка. Вернитесь в главное меню.", reply_markup=start_menu_kb())
+
+# --- ХЕНДЛЕРЫ ---
+
+@router.callback_query(F.data == "constr_select_main")
+async def select_main_menu(call: types.CallbackQuery, session: AsyncSession, state: FSMContext):
+    logger.info("SELECT: Selecting main channel")
+    await state.update_data(channel_selector_mode="main")
+    await show_channels_selection(call.message, state, session, call.from_user.id, "main", "📢 <b>Выберите основной канал:</b>")
+
+@router.callback_query(F.data == "constr_select_sponsors")
+async def select_sponsors_menu(call: types.CallbackQuery, session: AsyncSession, state: FSMContext):
+    logger.info("SELECT: Selecting sponsors")
+    await state.update_data(channel_selector_mode="sponsor")
+    await show_channels_selection(call.message, state, session, call.from_user.id, "sponsor", "🤝 <b>Выберите спонсоров:</b>\n\nОтметьте каналы-спонсоры:")
+
+@router.callback_query(F.data.startswith("constr_set_ch:"))
+async def set_channel(call: types.CallbackQuery, state: FSMContext, bot: Bot, session: AsyncSession):
+    logger.info("SELECT: Setting channel")
+    
+    _, mode, ch_id_str = call.data.split(":")
+    chat_id = int(ch_id_str)
+    
+    from database.requests.channel_repo import get_user_channels
+    user_chs = await get_user_channels(session, call.from_user.id)
+    target_ch = next((ch for ch in user_chs if ch.channel_id == chat_id), None)
+    if not target_ch: 
+        return await call.answer("❌ Канал не найден в вашем списке!", show_alert=True)
+
+    # Формируем информацию о канале
+    link = target_ch.invite_link or (f"@{target_ch.username}" if target_ch.username else "private")
+    channel_info = {
+        'id': chat_id, 
+        'title': target_ch.title, 
+        'link': link,
+        'db_id': target_ch.id
+    }
+    
+    data = await state.get_data()
+    sponsors = data.get('sponsors', [])
+
+    if mode == "main":
+        # Если выбираем основной канал
+        if data.get('main_channel') and data['main_channel']['id'] == chat_id:
+            # Отмена выбора
+            await state.update_data(main_channel=None)
+        else:
+            # Проверяем, не выбран ли уже этот канал как спонсор
+            if any(s['id'] == chat_id for s in sponsors):
+                # Удаляем из спонсоров
+                sponsors = [s for s in sponsors if s['id'] != chat_id]
+                await state.update_data(sponsors=sponsors)
+            
+            # Устанавливаем основной канал
+            await state.update_data(main_channel=channel_info)
+            
+        # Обновляем панель управления
+        hint_text = await get_control_hint('sponsors')
+        kb = constructor_main_kb(
+            "Установите время", 1, 0, False, True, 0
+        )
+        await update_control_message(bot, state, call.message.chat.id, hint_text, kb)
+        
+    else:  # mode == "sponsor"
+        if any(s['id'] == chat_id for s in sponsors):
+            # Удаляем из спонсоров
+            sponsors = [s for s in sponsors if s['id'] != chat_id]
+            await state.update_data(sponsors=sponsors)
+        else:
+            # Добавляем в спонсоры (но только если не выбран как основной)
+            main_ch = data.get('main_channel')
+            if main_ch and main_ch['id'] == chat_id:
+                return await call.answer("❌ Этот канал уже выбран как основной!", show_alert=True)
+            
+            sponsors.append(channel_info)
+            await state.update_data(sponsors=sponsors)
+        
+        # Обновляем панель управления
+        hint_text = await get_control_hint('winners')
+        kb = constructor_main_kb(
+            "Установите время", 1, 0, False, True, len(sponsors)
+        )
+        await update_control_message(bot, state, call.message.chat.id, hint_text, kb)
+        
+        # Обновляем кнопки выбора спонсоров
+        channels = await get_user_channels(session, call.from_user.id)
+        main_id = data.get('main_channel', {}).get('id')
+        available = [ch for ch in channels if ch.channel_id != main_id]
+        sel = [s['id'] for s in sponsors]
+        
+        await call.message.edit_reply_markup(
+            reply_markup=channel_selection_kb(available, "sponsor", sel)
+        )=== ./handlers/creator/time_picker.py ===
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from core.tools.timezone import get_now_msk, to_utc
@@ -1548,507 +3105,12 @@ async def pick_time(call: types.CallbackQuery, state: FSMContext):
         await send_preview(call.message, state, is_edit=True)
         
     except ValueError:
-        await call.answer("Ошибка даты")=== ./handlers/creator/wizard_content.py ===
-from aiogram import Router, types
-from aiogram.fsm.context import FSMContext
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from core.security.sanitizer import sanitize_text
-from handlers.creator.wizard_start import GiveawayWizard
-from database.requests.channel_repo import get_user_channels
-from keyboards.inline.creation_wizard import select_channel_kb
+        await call.answer("Ошибка даты")=== ./handlers/creator/__init__.py ===
+# handlers/creator/__init__.py - если файл существует, оставьте его пустым или:
+from aiogram import Router
 
 router = Router()
-
-@router.message(GiveawayWizard.waiting_for_text)
-async def process_content(message: types.Message, state: FSMContext, session: AsyncSession):
-    # 1. Обработка медиа и текста
-    media_id = None
-    media_type = None
-    text = message.text
-
-    if message.photo:
-        media_id = message.photo[-1].file_id
-        media_type = "photo"
-        text = message.caption
-    elif message.video:
-        media_id = message.video.file_id
-        media_type = "video"
-        text = message.caption
-    elif message.animation:
-        media_id = message.animation.file_id
-        media_type = "animation"
-        text = message.caption
-
-    if not text:
-        await message.answer("❌ Описание розыгрыша обязательно! Пришлите текст или фото с подписью.")
-        return
-
-    safe_text = sanitize_text(text)
-    
-    await state.update_data(
-        prize_text=safe_text,
-        media_file_id=media_id,
-        media_type=media_type
-    )
-    
-    # 2. ПРОВЕРКА СОХРАНЕННЫХ КАНАЛОВ
-    user_channels = await get_user_channels(session, message.from_user.id)
-    
-    await state.set_state(GiveawayWizard.waiting_for_channel)
-    
-    if user_channels:
-        await message.answer(
-            "📢 <b>Шаг 2/5: Выбор канала</b>\n\n"
-            "Выберите канал из списка или нажмите «Другой», чтобы переслать пост вручную.",
-            reply_markup=select_channel_kb(user_channels)
-        )
-    else:
-        # Если каналов нет, просим переслать по-старинке
-        await message.answer(
-            "📢 <b>Шаг 2/5</b>\n\n"
-            "Контент принят!\n"
-            "Теперь перешлите любое сообщение из канала, где бот является админом."
-        )=== ./handlers/creator/constructor.py ===
-from datetime import datetime, timedelta
-from aiogram import Router, types, F, Bot
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from database.requests.channel_repo import get_user_channels, add_channel
-from database.requests.giveaway_repo import create_giveaway
-from database.requests.user_repo import register_user
-from core.security.sanitizer import sanitize_text, get_message_html
-from keyboards.inline.constructor import constructor_main_kb, winners_selector_kb, channel_selection_kb, referral_selector_kb
-from keyboards.inline.dashboard import skip_link_kb
-from core.tools.scheduler import scheduler
-from core.logic.game_actions import finish_giveaway_task
-from core.tools.formatters import format_giveaway_caption
-from keyboards.inline.participation import join_keyboard
-from core.tools.timezone import to_utc, get_now_msk, strip_tz
-
-router = Router()
-
-class ConstructorState(StatesGroup):
-    init = State()
-    editing_content = State()
-    adding_channel = State()
-    adding_channel_link = State()
-
-@router.callback_query(F.data == "create_gw_init")
-@router.message(Command("new"))
-async def start_constructor(event: types.Message | types.CallbackQuery, state: FSMContext):
-    default_finish = get_now_msk() + timedelta(hours=24)
-    default_data = {
-        "text": None, "media_file_id": None, "media_type": None,
-        "main_channel": None, "sponsors": [],
-        "finish_time_str": default_finish.isoformat(),
-        "winners": 1, 
-        "ref_req": 0, # Кол-во друзей (0 = выкл)
-        "is_captcha": False
-    }
-    await state.set_data(default_data)
-    await state.set_state(ConstructorState.editing_content)
-    
-    msg = event.message if isinstance(event, types.CallbackQuery) else event
-    text = "🎨 <b>Конструктор Розыгрыша</b>\n\nПришлите пост (Текст, Фото или Видео)."
-    
-    if isinstance(event, types.CallbackQuery): await event.message.edit_text(text)
-    else: await msg.answer(text)
-
-@router.message(ConstructorState.editing_content)
-async def receive_content(message: types.Message, state: FSMContext):
-    media_id, media_type = None, None
-    if message.photo: media_id, media_type = message.photo[-1].file_id, "photo"
-    elif message.video: media_id, media_type = message.video.file_id, "video"
-    elif message.animation: media_id, media_type = message.animation.file_id, "animation"
-
-    html_content = get_message_html(message)
-    if not html_content: return await message.answer("❌ В посте должен быть текст.")
-    
-    safe_text = sanitize_text(html_content)
-    await state.update_data(text=safe_text, media_file_id=media_id, media_type=media_type)
-    await send_preview(message, state)
-
-async def send_preview(message: types.Message, state: FSMContext, is_edit: bool = False):
-    data = await state.get_data()
-    
-    finish_dt = datetime.fromisoformat(data['finish_time_str'])
-    date_str = finish_dt.strftime('%d.%m %H:%M МСК')
-    
-    kb = constructor_main_kb(
-        date_str, data['winners'], data['ref_req'], 
-        data['is_captcha'], bool(data['main_channel']), len(data['sponsors'])
-    )
-    
-    caption = f"{data['text']}\n\n<i>(Предпросмотр. Итоги: {date_str})</i>"
-    
-    if is_edit and message.from_user.is_bot:
-        try:
-            if data['media_type']: await message.edit_caption(caption=caption, reply_markup=kb)
-            else: await message.edit_text(text=caption, reply_markup=kb)
-            return
-        except: await message.delete()
-
-    if data['media_type'] == 'photo': await message.answer_photo(data['media_file_id'], caption=caption, reply_markup=kb)
-    elif data['media_type'] == 'video': await message.answer_video(data['media_file_id'], caption=caption, reply_markup=kb)
-    elif data['media_type'] == 'animation': await message.answer_animation(data['media_file_id'], caption=caption, reply_markup=kb)
-    else: await message.answer(text=caption, reply_markup=kb)
-
-# --- МЕНЮШКИ ---
-@router.callback_query(F.data == "constr_edit_content")
-async def ask_new_content(call: types.CallbackQuery, state: FSMContext):
-    await state.set_state(ConstructorState.editing_content)
-    await call.message.delete()
-    await call.message.answer("✏️ Пришлите новый текст или медиа:")
-
-@router.callback_query(F.data == "constr_winners_menu")
-async def winners_menu(call: types.CallbackQuery):
-    await call.message.edit_reply_markup(reply_markup=winners_selector_kb())
-
-@router.callback_query(F.data.startswith("constr_set_winners:"))
-async def set_winners(call: types.CallbackQuery, state: FSMContext):
-    await state.update_data(winners=int(call.data.split(":")[-1]))
-    await send_preview(call.message, state, is_edit=True)
-
-# --- РЕФЕРАЛКА ---
-@router.callback_query(F.data == "constr_ref_menu")
-async def ref_menu(call: types.CallbackQuery):
-    await call.message.edit_reply_markup(reply_markup=referral_selector_kb())
-
-@router.callback_query(F.data.startswith("constr_set_ref:"))
-async def set_ref(call: types.CallbackQuery, state: FSMContext):
-    count = int(call.data.split(":")[-1])
-    await state.update_data(ref_req=count)
-    await send_preview(call.message, state, is_edit=True)
-
-# --- КАПЧА ---
-@router.callback_query(F.data == "constr_toggle_cap")
-async def toggle_cap(call: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    await state.update_data(is_captcha=not data['is_captcha'])
-    await send_preview(call.message, state, is_edit=True)
-
-@router.callback_query(F.data == "constr_back_main")
-async def back_to_main(call: types.CallbackQuery, state: FSMContext):
-    await send_preview(call.message, state, is_edit=True)
-
-# --- ВЫБОР КАНАЛОВ (Копируем логику из прошлого ответа, она ок) ---
-@router.callback_query(F.data == "constr_select_main")
-async def select_main_menu(call: types.CallbackQuery, session: AsyncSession, state: FSMContext):
-    channels = await get_user_channels(session, call.from_user.id)
-    data = await state.get_data()
-    sel = [data['main_channel']['id']] if data['main_channel'] else []
-    await call.message.edit_reply_markup(reply_markup=channel_selection_kb(channels, "main", sel))
-
-@router.callback_query(F.data == "constr_select_sponsors")
-async def select_sponsors_menu(call: types.CallbackQuery, session: AsyncSession, state: FSMContext):
-    channels = await get_user_channels(session, call.from_user.id)
-    data = await state.get_data()
-    main_id = data['main_channel']['id'] if data['main_channel'] else None
-    available = [ch for ch in channels if ch.channel_id != main_id]
-    sel = [s['id'] for s in data['sponsors']]
-    await call.message.edit_reply_markup(reply_markup=channel_selection_kb(available, "sponsor", sel))
-
-@router.callback_query(F.data.startswith("constr_set_ch:"))
-async def set_channel(call: types.CallbackQuery, state: FSMContext, bot: Bot, session: AsyncSession):
-    _, mode, ch_id_str = call.data.split(":")
-    chat_id = int(ch_id_str)
-    from database.requests.channel_repo import get_user_channels
-    user_chs = await get_user_channels(session, call.from_user.id)
-    target_ch = next((ch for ch in user_chs if ch.channel_id == chat_id), None)
-    if not target_ch: return await call.answer("Ошибка БД", show_alert=True)
-
-    link = target_ch.invite_link
-    if not link and target_ch.username: link = f"@{target_ch.username}"
-    if not link: link = "private"
-
-    channel_info = {'id': chat_id, 'title': target_ch.title, 'link': link}
-
-    if mode == "main":
-        data = await state.get_data()
-        if data['main_channel'] and data['main_channel']['id'] == chat_id:
-            await state.update_data(main_channel=None)
-        else:
-            sponsors = [s for s in data['sponsors'] if s['id'] != chat_id]
-            await state.update_data(main_channel=channel_info, sponsors=sponsors)
-        
-        chs = await get_user_channels(session, call.from_user.id)
-        new_data = await state.get_data()
-        sel = [new_data['main_channel']['id']] if new_data['main_channel'] else []
-        await call.message.edit_reply_markup(reply_markup=channel_selection_kb(chs, "main", sel))
-    else:
-        data = await state.get_data()
-        sponsors = data.get('sponsors', [])
-        if any(s['id'] == chat_id for s in sponsors):
-            sponsors = [s for s in sponsors if s['id'] != chat_id]
-        else:
-            sponsors.append(channel_info)
-        await state.update_data(sponsors=sponsors)
-        
-        chs = await get_user_channels(session, call.from_user.id)
-        main_id = data['main_channel']['id'] if data['main_channel'] else None
-        avail = [ch for ch in chs if ch.channel_id != main_id]
-        sel = [s['id'] for s in sponsors]
-        await call.message.edit_reply_markup(reply_markup=channel_selection_kb(avail, "sponsor", sel))
-    
-    await send_preview(call.message, state, is_edit=True)
-
-# --- ДОБАВЛЕНИЕ КАНАЛА ---
-@router.callback_query(F.data == "add_new_channel_constr")
-async def ask_channel_constr(call: types.CallbackQuery, state: FSMContext):
-    await state.set_state(ConstructorState.adding_channel)
-    await call.message.delete()
-    await call.message.answer("📢 Перешлите пост из канала (Шаг 1/2):")
-
-@router.message(ConstructorState.adding_channel)
-async def process_new_channel_step1_constr(message: types.Message, state: FSMContext, bot: Bot):
-    chat_id, title, username = None, "Title", None
-    if message.forward_from_chat:
-        chat_id = message.forward_from_chat.id
-        title = message.forward_from_chat.title
-        username = message.forward_from_chat.username
-    elif message.text and message.text.startswith("@"):
-        try:
-            chat = await bot.get_chat(message.text)
-            chat_id, title, username = chat.id, chat.title, chat.username
-        except: pass
-    
-    if not chat_id: return await message.answer("❌ Ошибка. Перешлите пост.")
-
-    try:
-        member = await bot.get_chat_member(chat_id, bot.id)
-        if member.status not in ("administrator", "creator"): raise Exception
-    except: return await message.answer("❌ Сделайте бота админом!")
-
-    await state.update_data(temp_channel={"id": chat_id, "title": title, "username": username})
-    await state.set_state(ConstructorState.adding_channel_link)
-    await message.answer("🔗 <b>Шаг 2/2:</b> Инвайт-ссылка:", reply_markup=skip_link_kb("constr"))
-
-@router.message(ConstructorState.adding_channel_link)
-async def process_link_text_constr(message: types.Message, state: FSMContext, session: AsyncSession):
-    link = message.text.strip()
-    if "t.me" not in link: return await message.answer("❌ Некорректная ссылка.")
-    data = await state.get_data()
-    ch_data = data['temp_channel']
-    await add_channel(session, message.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link)
-    await message.answer("✅ Добавлен!")
-    await state.set_state(ConstructorState.init)
-    await send_preview(message, state)
-
-@router.callback_query(ConstructorState.adding_channel_link, F.data == "skip_link_constr")
-async def process_link_skip_constr(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
-    data = await state.get_data()
-    ch_data = data['temp_channel']
-    auto_link = None
-    if ch_data['username']: auto_link = f"@{ch_data['username']}"
-    else:
-        try: auto_link = await bot.export_chat_invite_link(ch_data['id'])
-        except: pass
-    await add_channel(session, call.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], auto_link)
-    await state.set_state(ConstructorState.init)
-    await send_preview(call.message, state)
-
-# --- 7. ПУБЛИКАЦИЯ (ФИНАЛ) ---
-@router.callback_query(F.data == "constr_publish")
-async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
-    data = await state.get_data()
-    if not data.get('main_channel'): return await call.answer("Выберите канал!", show_alert=True)
-    
-    main_ch = data['main_channel']
-    
-    # 1. Время (МСК -> UTC -> Без таймзоны для БД)
-    finish_dt_msk = datetime.fromisoformat(data['finish_time_str'])
-    finish_dt_utc = to_utc(finish_dt_msk)
-    finish_dt_db = strip_tz(finish_dt_utc) # ВОТ ТУТ ФИКС ОШИБКИ DBAPI
-    
-    bot_info = await bot.get_me()
-    # В caption передаем UTC, внутри форматтера переведется в МСК
-    caption = format_giveaway_caption(data['text'], data['winners'], finish_dt_utc, 0)
-    keyboard = join_keyboard(bot_info.username, 0)
-    
-    # 2. Постинг в ОСНОВНОЙ канал
-    try:
-        if data['media_type'] == 'photo':
-            msg = await bot.send_photo(main_ch['id'], data['media_file_id'], caption=caption, reply_markup=keyboard)
-        elif data['media_type'] == 'video':
-            msg = await bot.send_video(main_ch['id'], data['media_file_id'], caption=caption, reply_markup=keyboard)
-        else:
-            msg = await bot.send_message(main_ch['id'], text=caption, reply_markup=keyboard)
-    except Exception as e:
-        return await call.answer(f"Ошибка публикации в основной: {e}", show_alert=True)
-
-    # 3. Сохранение
-    is_ref = data['ref_req'] > 0 # Если друзей > 0, значит реф включена
-    
-    gw_id = await create_giveaway(
-        session, call.from_user.id, main_ch['id'], msg.message_id, 
-        data['text'], data['winners'], finish_dt_db, # В БД пишем naive time
-        data['media_file_id'], data['media_type'], 
-        data['sponsors'], 
-        is_referral=is_ref, is_captcha=data['is_captcha']
-    )
-
-    # 4. Обновление кнопки (ID)
-    await bot.edit_message_reply_markup(chat_id=main_ch['id'], message_id=msg.message_id, reply_markup=join_keyboard(bot_info.username, gw_id))
-    
-    # 5. КРОСС-ПОСТИНГ В СПОНСОРОВ (Репост или сообщение)
-    for sp in data['sponsors']:
-        try:
-            # Просто форвардим пост из основного в спонсорский
-            await bot.forward_message(chat_id=sp['id'], from_chat_id=main_ch['id'], message_id=msg.message_id)
-        except:
-            # Если форвард запрещен, пробуем отправить копию (copy_message)
-            try:
-                await bot.copy_message(chat_id=sp['id'], from_chat_id=main_ch['id'], message_id=msg.message_id, reply_markup=join_keyboard(bot_info.username, gw_id))
-            except:
-                pass # Не критично
-
-    # 6. Таймер (передаем UTC)
-    scheduler.add_job(finish_giveaway_task, "date", run_date=finish_dt_utc, kwargs={"giveaway_id": gw_id}, id=f"gw_{gw_id}", replace_existing=True)
-    
-    await call.message.delete()
-    link = main_ch['link'] if main_ch['link'] != 'private' else "канал"
-    await call.message.answer(f"✅ <b>Опубликовано!</b>\nИтоги: {finish_dt_msk.strftime('%d.%m %H:%M')}\n<a href='{link}'>Перейти</a>", disable_web_page_preview=True)
-    await state.clear()=== ./handlers/creator/wizard_settings.py ===
-from datetime import datetime, timedelta
-from aiogram import Router, types, Bot, F
-from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from handlers.creator.wizard_start import GiveawayWizard
-from keyboards.inline.creation_wizard import confirm_keyboard
-
-router = Router()
-
-# --- ВЫБОР ОСНОВНОГО КАНАЛА (Как и было) ---
-@router.callback_query(GiveawayWizard.waiting_for_channel, F.data.startswith("select_ch_"))
-async def channel_selected_callback(call: types.CallbackQuery, state: FSMContext, bot: Bot):
-    chat_id = int(call.data.split("_")[-1])
-    try:
-        chat = await bot.get_chat(chat_id) # Получаем инфо для спонсорского списка
-        member = await bot.get_chat_member(chat_id, bot.id)
-        if member.status not in ("administrator", "creator"):
-            raise Exception
-    except:
-        return await call.answer("❌ Бот не админ или ошибка доступа!", show_alert=True)
-
-    await state.update_data(channel_id=chat_id)
-    
-    # Инициализируем список спонсоров. По умолчанию туда входит основной канал.
-    # Это нужно, чтобы логика проверки подписки была единой.
-    link = chat.username if chat.username else chat.invite_link
-    initial_sponsors = [{
-        'id': chat_id,
-        'title': chat.title,
-        'link': f"@{link}" if chat.username else link
-    }]
-    await state.update_data(sponsors=initial_sponsors)
-
-    # Переходим к добавлению спонсоров
-    await state.set_state(GiveawayWizard.waiting_for_sponsors)
-    await call.message.edit_text(
-        "🤝 <b>Шаг 3/6: Спонсоры</b>\n\n"
-        "Нужно ли подписаться на другие каналы?\n"
-        "Отправьте @username канала или перешлите пост, чтобы добавить спонсора.\n"
-        "⚠️ Бот должен быть там админом!\n\n"
-        "Нажмите <b>«Готово»</b>, если спонсоров больше нет.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Готово, дальше", callback_data="sponsors_done")]])
-    )
-
-# --- ЛОГИКА ДОБАВЛЕНИЯ СПОНСОРОВ ---
-@router.message(GiveawayWizard.waiting_for_sponsors)
-async def add_sponsor(message: types.Message, state: FSMContext, bot: Bot):
-    chat_id = None
-    title = None
-    link = None
-
-    if message.forward_from_chat:
-        chat_id = message.forward_from_chat.id
-        title = message.forward_from_chat.title
-        link = message.forward_from_chat.username
-    elif message.text and message.text.startswith("@"):
-        try:
-            chat = await bot.get_chat(message.text)
-            chat_id = chat.id
-            title = chat.title
-            link = chat.username
-        except:
-            pass
-    
-    if not chat_id:
-        return await message.answer("❌ Не могу найти канал. Перешлите пост или отправьте @username.")
-
-    # Проверка админки
-    try:
-        member = await bot.get_chat_member(chat_id, bot.id)
-        if member.status not in ("administrator", "creator"):
-             return await message.answer("❌ Я не админ в этом канале!")
-    except:
-        return await message.answer("❌ Ошибка доступа.")
-
-    data = await state.get_data()
-    sponsors = data.get('sponsors', [])
-    
-    # Проверка на дубли
-    if any(s['id'] == chat_id for s in sponsors):
-        return await message.answer("⚠️ Этот канал уже добавлен.")
-
-    sponsors.append({
-        'id': chat_id,
-        'title': title,
-        'link': f"@{link}" if link else "link"
-    })
-    await state.update_data(sponsors=sponsors)
-    
-    # Показываем список
-    list_text = "\n".join([f"{i+1}. {s['title']}" for i, s in enumerate(sponsors)])
-    
-    await message.answer(
-        f"✅ <b>Спонсор добавлен!</b>\n\n"
-        f"Список каналов для подписки:\n{list_text}\n\n"
-        f"Отправьте еще канал или нажмите «Готово».",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Готово, дальше", callback_data="sponsors_done")]])
-    )
-
-# --- ЗАВЕРШЕНИЕ ЭТАПА СПОНСОРОВ ---
-@router.callback_query(GiveawayWizard.waiting_for_sponsors, F.data == "sponsors_done")
-async def finish_sponsors(call: types.CallbackQuery, state: FSMContext):
-    await state.set_state(GiveawayWizard.waiting_for_winners)
-    await call.message.edit_text("🔢 <b>Шаг 4/6</b>\nСколько будет победителей? (введите число)")
-
-# --- Остальные шаги (победители и время) без изменений ---
-@router.message(GiveawayWizard.waiting_for_winners)
-async def process_winners(message: types.Message, state: FSMContext):
-    if not message.text.isdigit() or int(message.text) < 1:
-        return await message.answer("❌ Введите целое число > 0.")
-    await state.update_data(winners_count=int(message.text))
-    await state.set_state(GiveawayWizard.waiting_for_time)
-    await message.answer("⏳ <b>Шаг 5/6</b>\nЧерез сколько часов завершить?")
-
-@router.message(GiveawayWizard.waiting_for_time)
-async def process_time(message: types.Message, state: FSMContext):
-    try:
-        hours = float(message.text)
-        end_time = datetime.utcnow() + timedelta(hours=hours)
-    except ValueError:
-        return await message.answer("❌ Введите число (часы).")
-
-    await state.update_data(finish_time=end_time.isoformat())
-    data = await state.get_data()
-    sponsors_count = len(data.get('sponsors', []))
-    
-    await message.answer(
-        f"📋 <b>Проверьте данные:</b>\n"
-        f"Канал ID: {data['channel_id']}\n"
-        f"Спонсоров: {sponsors_count}\n"
-        f"Победителей: {data['winners_count']}\n"
-        f"Финиш: {end_time.strftime('%Y-%m-%d %H:%M')}\n\n"
-        f"Текст: {data['prize_text'][:50]}...",
-        reply_markup=confirm_keyboard()
-    )
-    await state.set_state(GiveawayWizard.confirmation)=== ./handlers/super_admin/list_view.py ===
+# Никаких импортов!=== ./handlers/super_admin/list_view.py ===
 # handlers/super_admin/list_view.py
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
@@ -2065,28 +3127,85 @@ async def show_gw_options(call: CallbackQuery, callback_data: AdminAction):
     admin_id = call.from_user.id
     
     kb = build_manage_menu(gw_id, admin_id)
-    await call.message.edit_text(f"⚙️ Управление розыгрышем #{gw_id}", reply_markup=kb)=== ./handlers/super_admin/menu_main.py ===
-# handlers/super_admin/menu_main.py
+    await call.message.edit_text(f"⚙️ Управление розыгрышем #{gw_id}", reply_markup=kb)=== ./handlers/super_admin/user_manage.py ===
 from aiogram import Router, types, F
-from filters.is_admin import IsAdmin
-from database.requests.giveaway_repo import get_active_giveaways
-from keyboards.inline.admin_panel import build_giveaway_list
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
+
+from database.models.user import User
+from filters.is_admin import IsAdmin
 
 router = Router()
 
-@router.message(IsAdmin(), F.text == "/admin")
+class AdminUserState(StatesGroup):
+    waiting_for_id_prem = State()
+
+@router.callback_query(IsAdmin(), F.data == "admin_find_user")
+async def ask_user_id(call: types.CallbackQuery, state: FSMContext):
+    await call.message.answer("🆔 Введите ID пользователя для выдачи/снятия Premium:")
+    await state.set_state(AdminUserState.waiting_for_id_prem)
+    await call.answer()
+
+@router.message(IsAdmin(), AdminUserState.waiting_for_id_prem)
+async def toggle_premium(message: types.Message, state: FSMContext, session: AsyncSession):
+    try:
+        target_id = int(message.text)
+    except ValueError:
+        return await message.answer("❌ Это не число.")
+
+    user = await session.get(User, target_id)
+    if not user:
+        return await message.answer("❌ Пользователь не найден в базе.")
+
+    # Переключаем статус
+    new_status = not user.is_premium
+    user.is_premium = new_status
+    await session.commit()
+    
+    status_str = "✅ ВЫДАН" if new_status else "❌ СНЯТ"
+    await message.answer(f"Premium для пользователя {target_id} успешно {status_str}.")
+    await state.clear()=== ./handlers/super_admin/menu_main.py ===
+from aiogram import Router, types, F
+from aiogram.filters import Command
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from filters.is_admin import IsAdmin
+from database.models.user import User
+from database.models.giveaway import Giveaway
+from keyboards.builders import simple_menu 
+
+router = Router()
+
+@router.message(IsAdmin(), Command("admin"))
 async def admin_dashboard(message: types.Message, session: AsyncSession):
-    active_gws = await get_active_giveaways(session)
+    # Сбор статистики
+    total_users = await session.scalar(select(func.count(User.user_id)))
+    premium_users = await session.scalar(select(func.count(User.user_id)).where(User.is_premium == True))
+    active_gws = await session.scalar(select(func.count(Giveaway.id)).where(Giveaway.status == "active"))
+    finished_gws = await session.scalar(select(func.count(Giveaway.id)).where(Giveaway.status == "finished"))
+
+    text = (
+        f"👑 <b>Панель Администратора</b>\n\n"
+        f"👥 <b>Пользователи:</b> {total_users}\n"
+        f"🌟 <b>Premium:</b> {premium_users}\n"
+        f"🎰 <b>Розыгрыши:</b>\n"
+        f" • Активные: {active_gws}\n"
+        f" • Завершенные: {finished_gws}\n\n"
+        f"Выберите действие:"
+    )
     
-    kb = build_giveaway_list(active_gws, admin_id=message.from_user.id)
-    
-    await message.answer(
-        f"🔐 <b>Admin Panel</b>\n"
-        f"Активных розыгрышей: {len(active_gws)}\n\n"
-        f"Выберите розыгрыш для управления:",
-        reply_markup=kb
-    )=== ./handlers/super_admin/manage_item.py ===
+    # Билдер кнопок (нужно добавить эти callback'и в обработчики)
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📢 Рассылка", callback_data="admin_broadcast")
+    kb.button(text="👤 Найти юзера", callback_data="admin_find_user")
+    kb.button(text="📋 Список активных GW", callback_data="admin_list_active")
+    kb.adjust(2, 1)
+
+    await message.answer(text, reply_markup=kb.as_markup())=== ./handlers/super_admin/manage_item.py ===
 # handlers/super_admin/manage_item.py
 from aiogram import Router, Bot, F
 from aiogram.types import CallbackQuery
@@ -2106,7 +3225,76 @@ async def force_finish(call: CallbackQuery, callback_data: AdminAction, bot: Bot
 async def delete_gw(call: CallbackQuery, callback_data: AdminAction):
     # Логика удаления из БД (нужно добавить метод в repo)
     # await delete_giveaway(session, callback_data.id)
-    await call.message.edit_text("🗑 Розыгрыш удален (soft delete).")=== ./handlers/super_admin/rig_winner.py ===
+    await call.message.edit_text("🗑 Розыгрыш удален (soft delete).")=== ./handlers/super_admin/broadcast.py ===
+import asyncio
+from aiogram import Router, types, F, Bot
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from database.models.user import User
+from filters.is_admin import IsAdmin
+
+router = Router()
+
+class BroadcastState(StatesGroup):
+    waiting_for_post = State()
+    confirm = State()
+
+@router.callback_query(IsAdmin(), F.data == "admin_broadcast")
+async def start_broadcast(call: types.CallbackQuery, state: FSMContext):
+    await call.message.answer("📢 <b>Рассылка</b>\n\nПришлите сообщение (текст, фото, репост), которое нужно разослать всем.")
+    await state.set_state(BroadcastState.waiting_for_post)
+    await call.answer()
+
+@router.message(IsAdmin(), BroadcastState.waiting_for_post)
+async def receive_post(message: types.Message, state: FSMContext):
+    # Сохраняем ID сообщения и ID чата, откуда копировать
+    await state.update_data(msg_id=message.message_id, chat_id=message.chat.id)
+    
+    # Просим подтверждение
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Отправить", callback_data="broadcast_go")
+    kb.button(text="❌ Отмена", callback_data="admin_cancel")
+    
+    await message.copy_to(message.chat.id) # Показываем превью
+    await message.answer("Выше превью. Начинаем рассылку?", reply_markup=kb.as_markup())
+    await state.set_state(BroadcastState.confirm)
+
+@router.callback_query(IsAdmin(), BroadcastState.confirm, F.data == "broadcast_go")
+async def run_broadcast(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+    data = await state.get_data()
+    msg_id = data['msg_id']
+    from_chat_id = data['chat_id']
+    
+    await call.message.edit_text("🚀 Рассылка запущена! Это может занять время...")
+    
+    # Получаем всех пользователей
+    result = await session.execute(select(User.user_id))
+    users = result.scalars().all()
+    
+    count = 0
+    blocked = 0
+    
+    for user_id in users:
+        try:
+            await bot.copy_message(chat_id=user_id, from_chat_id=from_chat_id, message_id=msg_id)
+            count += 1
+        except Exception:
+            blocked += 1
+        
+        # Пауза каждые 20 сообщений, чтобы не словить FloodWait
+        if count % 20 == 0:
+            await asyncio.sleep(1)
+            
+    await call.message.answer(
+        f"🏁 <b>Рассылка завершена!</b>\n\n"
+        f"✅ Доставлено: {count}\n"
+        f"💀 Заблокировали бота: {blocked}"
+    )
+    await state.clear()=== ./handlers/super_admin/rig_winner.py ===
 # handlers/super_admin/rig_winner.py
 from aiogram import Router, F, types
 from aiogram.fsm.context import FSMContext
@@ -2147,144 +3335,264 @@ async def set_winner_id(message: types.Message, state: FSMContext, session: Asyn
     
     await message.answer(f"✅ <b>Готово!</b>\nПользователь `{winner_id}` победит в розыгрыше #{gw_id} (если будет участвовать).")
     await state.clear()=== ./handlers/participant/join.py ===
-# handlers/participant/join.py
-from aiogram import Router, Bot, F
-from aiogram.types import CallbackQuery
+from aiogram import Router, Bot, types, F
+from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from keyboards.callback_data import JoinAction
-from database.requests.participant_repo import add_participant
-from database.requests.giveaway_repo import get_giveaway_by_id
-from database.requests.user_repo import register_user  # <--- ДОБАВИЛИ ИМПОРТ
+from database.models.participant import Participant
+from database.models.giveaway import Giveaway
+from database.requests.giveaway_repo import get_giveaway_by_id, get_required_channels
+from keyboards.inline.participation import check_subscription_kb
+from core.logic.ticket_gen import get_unique_ticket
+from core.services.ref_service import create_ref_link
+from core.services.checker_service import is_user_subscribed
 
 router = Router()
 
-@router.callback_query(JoinAction.filter())
-async def on_join_click(call: CallbackQuery, callback_data: JoinAction, session: AsyncSession, bot: Bot):
-    gw_id = callback_data.giveaway_id
-    giveaway = await get_giveaway_by_id(session, gw_id)
+async def get_missing_channels(bot: Bot, user_id: int, gw: Giveaway, session: AsyncSession):
+    """
+    Возвращает список каналов для подписки.
+    Использует Redis-кеш для проверки статуса юзера.
+    """
+    reqs = await get_required_channels(session, gw.id)
+    missing = []
 
-    if not giveaway or giveaway.status != 'active':
-        return await call.answer("❌ Розыгрыш завершен или удален.", show_alert=True)
-
-    # 1. Проверка подписки
+    # 1. Проверяем основной канал
     try:
-        member = await bot.get_chat_member(chat_id=giveaway.channel_id, user_id=call.from_user.id)
-        if member.status in ['left', 'kicked']:
-            return await call.answer("📢 Сначала подпишись на канал!", show_alert=True)
-    except Exception:
-        return await call.answer("⚠️ Не могу проверить подписку (бот не админ).", show_alert=True)
+        chat = await bot.get_chat(gw.channel_id)
+        # Формируем красивую ссылку
+        link = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else "...")
+        
+        # ПРОВЕРКА ЧЕРЕЗ КЕШ СЕРВИС
+        if not await is_user_subscribed(bot, gw.channel_id, user_id):
+            missing.append({'title': f"📢 {chat.title}", 'link': link})
+    except:
+        # Если бот не может получить доступ
+        missing.append({'title': "📢 Основной канал", 'link': "https://t.me/..."})
 
-    # 2. РЕГИСТРАЦИЯ ПОЛЬЗОВАТЕЛЯ (ИСПРАВЛЕНИЕ ОШИБКИ FK)
-    # Даже если он не жал /start, мы сохраняем его в базу users
-    await register_user(
-        session,
-        user_id=call.from_user.id,
-        username=call.from_user.username,
-        full_name=call.from_user.full_name
+    # 2. Проверяем спонсоров
+    for r in reqs:
+        # ПРОВЕРКА ЧЕРЕЗ КЕШ СЕРВИС
+        if not await is_user_subscribed(bot, r.channel_id, user_id):
+            missing.append({'title': r.channel_title, 'link': r.channel_link})
+            
+    return missing
+
+async def show_subscription_check(message: types.Message, gw_id: int, session: AsyncSession, bot: Bot):
+    """
+    Главная функция входа.
+    """
+    gw = await get_giveaway_by_id(session, gw_id)
+    if not gw or gw.status != 'active':
+        return await message.answer("😔 <b>Увы, этот розыгрыш уже завершен.</b>")
+
+    # --- ПРОВЕРКА: СОЗДАТЕЛЬ НЕ МОЖЕТ УЧАСТВОВАТЬ ---
+    if message.from_user.id == gw.owner_id:
+        return await message.answer(
+            "⚠️ <b>Вы организатор этого розыгрыша.</b>\n\n"
+            "Участвовать в собственном розыгрыше нельзя. Вы можете отслеживать статистику в личном кабинете."
+        )
+    # ------------------------------------------------
+
+    # Проверяем, есть ли билет в базе
+    existing_stmt = select(Participant).where(
+        Participant.user_id == message.from_user.id,
+        Participant.giveaway_id == gw_id
+    )
+    existing = await session.scalar(existing_stmt)
+    
+    bot_username = (await bot.get_me()).username
+
+    # === СЦЕНАРИЙ 1: УЖЕ УЧАСТВУЕТ ===
+    if existing:
+        text = (
+            f"👋 <b>Ты уже в игре!</b>\n\n"
+            f"🎫 Твой билет: <code>{existing.ticket_code}</code>\n"
+            f"⚡️ Шансов на победу: <b>{existing.tickets_count}</b>"
+        )
+        
+        if gw.is_referral_enabled:
+            token = await create_ref_link(message.from_user.id)
+            ref_link = f"https://t.me/{bot_username}?start=gw_{gw_id}_{token}"
+            text += (
+                f"\n\n🚀 <b>Хочешь увеличить шансы?</b>\n"
+                f"Приглашай друзей по этой ссылке — за каждого получишь <b>+1 билет</b>:\n"
+                f"👇👇👇\n"
+                f"<code>{ref_link}</code>"
+            )
+
+        return await message.answer(text, disable_web_page_preview=True)
+
+    # === СЦЕНАРИЙ 2: НОВИЧОК (Проверка подписок) ===
+    missing = await get_missing_channels(bot, message.from_user.id, gw, session)
+
+    if not missing:
+        # Если подписан на все -> Регистрируем
+        await register_participant(message, gw, session, bot)
+    else:
+        text = (
+            f"🔒 <b>Доступ ограничен!</b>\n\n"
+            f"Чтобы получить билет участника, подпишись на каналы спонсоров:\n"
+            f"👇 Жми кнопки ниже, а затем <b>«Я подписался»</b>"
+        )
+        await message.answer(text, reply_markup=check_subscription_kb(gw_id, missing))
+
+@router.callback_query(F.data.startswith("check_sub:"))
+async def on_check_subscription(call: types.CallbackQuery, session: AsyncSession, bot: Bot, state: FSMContext):
+    gw_id = int(call.data.split(":")[-1])
+    gw = await get_giveaway_by_id(session, gw_id)
+    
+    if not gw or gw.status != 'active':
+        return await call.message.edit_text("❌ Розыгрыш завершен.")
+
+    # Проверка на создателя (на всякий случай)
+    if call.from_user.id == gw.owner_id:
+        return await call.answer("Вы организатор!", show_alert=True)
+
+    missing = await get_missing_channels(bot, call.from_user.id, gw, session)
+
+    if missing:
+        await call.answer("👀 Вы подписались не на все каналы!", show_alert=True)
+        await call.message.edit_reply_markup(reply_markup=check_subscription_kb(gw_id, missing))
+    else:
+        await call.message.delete()
+        await register_participant(call.message, gw, session, bot, state)
+
+async def register_participant(message: types.Message, gw: Giveaway, session: AsyncSession, bot: Bot, state: FSMContext = None):
+    user_id = message.chat.id
+    ticket = await get_unique_ticket(session, gw.id)
+    
+    referrer_id = None
+    if gw.is_referral_enabled and state:
+        data = await state.get_data()
+        referrer_id = data.get("referrer_id")
+    
+    new_part = Participant(
+        user_id=user_id,
+        giveaway_id=gw.id,
+        ticket_code=ticket,
+        referrer_id=referrer_id,
+        tickets_count=1
+    )
+    session.add(new_part)
+    
+    if gw.is_referral_enabled and referrer_id:
+        ref_part_stmt = select(Participant).where(
+            Participant.user_id == referrer_id, 
+            Participant.giveaway_id == gw.id
+        )
+        ref_part = await session.scalar(ref_part_stmt)
+        if ref_part:
+            ref_part.tickets_count += 1
+            session.add(ref_part)
+
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        return await message.answer("✅ Вы уже участвуете!")
+
+    text = (
+        f"🎉 <b>ПОЗДРАВЛЯЕМ, ВЫ В ИГРЕ!</b>\n\n"
+        f"🎫 Твой билет: <code>{ticket}</code>\n"
+        f"👤 Участник: <b>{message.chat.full_name}</b>"
     )
 
-    # 3. Добавление в БД участников
-    is_new = await add_participant(session, call.from_user.id, gw_id)
+    if gw.is_referral_enabled:
+        bot_username = (await bot.get_me()).username
+        token = await create_ref_link(user_id)
+        ref_link = f"https://t.me/{bot_username}?start=gw_{gw.id}_{token}"
+        
+        text += (
+            f"\n\n🚀 <b>Увеличь свои шансы на победу!</b>\n"
+            f"Отправь ссылку друзьям — за каждого друга ты получишь <b>+1 дополнительный билет</b>.\n\n"
+            f"🔗 <b>Твоя личная ссылка:</b>\n"
+            f"<code>{ref_link}</code>"
+        )
     
-    if is_new:
-        await call.answer("✅ Вы участвуете! Удачи!", show_alert=True)
-    else:
-        await call.answer("🤔 Вы уже в списке участников.", show_alert=False)=== ./handlers/common/start.py ===
+    await message.answer(text, disable_web_page_preview=True)
+    if state:
+        await state.clear()=== ./handlers/common/start.py ===
 from aiogram import Router, types, Bot
 from aiogram.filters import CommandStart, CommandObject
+from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy import select
 
 from database.requests.user_repo import register_user
-from database.requests.giveaway_repo import get_giveaway_by_id, get_required_channels
-from database.requests.participant_repo import add_participant
+from database.models.winner import Winner
+from handlers.participant.join import show_subscription_check
+from core.services.ref_service import resolve_ref_link # <--- Сервис
 
 router = Router()
 
 @router.message(CommandStart())
-async def cmd_start(message: types.Message, command: CommandObject, session: AsyncSession, bot: Bot):
+async def cmd_start(
+    message: types.Message, 
+    command: CommandObject, 
+    session: AsyncSession, 
+    bot: Bot, 
+    state: FSMContext
+):
     await register_user(session, message.from_user.id, message.from_user.username, message.from_user.full_name)
 
     args = command.args
-    if not args: return 
+    if not args:
+        return await message.answer(f"👋 Привет, {message.from_user.first_name}!")
 
-    # --- РЕЗУЛЬТАТЫ ---
+    # 1. Результаты (через таблицу Winners)
     if args.startswith("res_"):
         try: gw_id = int(args.replace("res_", ""))
         except: return
         
-        gw = await get_giveaway_by_id(session, gw_id)
-        if not gw: return await message.answer("❌ Не найдено.")
-        if gw.status == 'active': return await message.answer("⏳ Розыгрыш идет.")
+        # Ищем победителей в таблице
+        stmt = select(Winner).where(Winner.giveaway_id == gw_id)
+        winners = (await session.execute(stmt)).scalars().all()
+        
+        if not winners:
+            return await message.answer("😔 Победителей нет или розыгрыш еще идет.")
             
-        text = f"🏁 <b>Результаты #{gw_id}</b>\n\n"
-        if not gw.winner_ids: text += "😔 Победителей нет."
-        else:
-            wl = gw.winner_ids.split(",")
-            if str(message.from_user.id) in wl: text += "\n🎉 <b>ВЫ ВЫИГРАЛИ!</b> 🎉\n\n"
-            text += "🏆 <b>Список:</b>\n"
-            for idx, uid in enumerate(wl, 1):
-                try:
-                    c = await bot.get_chat(int(uid))
-                    n = f"@{c.username}" if c.username else c.full_name
-                    text += f"{idx}. {n}\n"
-                except: text += f"{idx}. ID {uid}\n"
-        await message.answer(text)
-        return
-
-    # --- УЧАСТИЕ ---
-    if args.startswith("gw_"):
-        try: gw_id = int(args.replace("gw_", ""))
-        except: return
-
-        gw = await get_giveaway_by_id(session, gw_id)
-        if not gw or gw.status != 'active': return await message.answer("❌ Завершен.")
-
-        reqs = await get_required_channels(session, gw_id)
-        missing = []
-
-        # Главный
-        try:
-            chat = await bot.get_chat(gw.channel_id)
-            # Приоритет инвайт-ссылке (может быть в БД в Channels, но здесь берем из объекта Chat если бот админ)
-            # В идеале нужно делать join с таблицей Channels, но для простоты:
-            m_link = chat.invite_link if chat.invite_link else f"https://t.me/{chat.username}"
-            if not m_link or "t.me" not in m_link: m_link = "private"
-            
-            mem = await bot.get_chat_member(gw.channel_id, message.from_user.id)
-            if mem.status in ['left', 'kicked']:
-                missing.append({'title': 'Основной канал', 'link': m_link})
-        except: pass
-
-        # Спонсоры
-        for r in reqs:
+        text = "🏆 <b>Список победителей:</b>\n"
+        is_winner = False
+        for i, w in enumerate(winners, 1):
+            if w.user_id == message.from_user.id: is_winner = True
             try:
-                mem = await bot.get_chat_member(r.channel_id, message.from_user.id)
-                if mem.status in ['left', 'kicked']:
-                    # Берем ссылку из БД, которую мы сохранили при создании!
-                    missing.append({'title': r.channel_title, 'link': r.channel_link})
-            except: pass
-
-        if missing:
-            builder = InlineKeyboardBuilder()
-            text = "🛑 <b>Подпишитесь для участия:</b>\n\n"
-            for ch in missing:
-                url = ch['link']
-                # Фикс кривых ссылок
-                if url == "private" or not url: url = "https://t.me/" 
-                if url.startswith("@"): url = f"https://t.me/{url[1:]}"
-                
-                builder.button(text=f"📢 {ch['title']}", url=url)
+                c = await bot.get_chat(w.user_id)
+                name = f"@{c.username}" if c.username else c.full_name
+                text += f"{i}. {name}\n"
+            except:
+                text += f"{i}. ID {w.user_id}\n"
+        
+        if is_winner:
+            text = "🎉 <b>ВЫ ВЫИГРАЛИ!</b> 🎉\n\n" + text
             
-            builder.button(text="🔄 Проверить подписку", url=f"https://t.me/{(await bot.get_me()).username}?start=gw_{gw_id}")
-            builder.adjust(1)
-            await message.answer(text, reply_markup=builder.as_markup())
-            return
+        return await message.answer(text)
 
-        is_new = await add_participant(session, message.from_user.id, gw_id)
-        if is_new: await message.answer("✅ <b>Вы участвуете!</b>")
-        else: await message.answer("👌 Вы уже участвуете.")=== ./handlers/__init__.py ===
+    # 2. Участие
+    if args.startswith("gw_"):
+        # gw_100_a8b3c9...
+        clean_args = args.replace("gw_", "")
+        parts = clean_args.split("_")
+        
+        try:
+            gw_id = int(parts[0])
+        except ValueError:
+            return await message.answer("❌ Ссылка повреждена.")
+
+        referrer_id = None
+        if len(parts) > 1:
+            token = parts[1]
+            # Ходим в Redis за реальным ID
+            candidate_id = await resolve_ref_link(token)
+            
+            if candidate_id and candidate_id != message.from_user.id:
+                referrer_id = candidate_id
+
+        if referrer_id:
+            await state.update_data(referrer_id=referrer_id)
+        
+        await show_subscription_check(message, gw_id, session, bot)=== ./handlers/__init__.py ===
 === ./handlers/user/my_channels.py ===
 from aiogram import Router, types, F, Bot
 from aiogram.fsm.context import FSMContext
@@ -2300,14 +3608,24 @@ class ChannelState(StatesGroup):
     waiting_for_forward = State()
     waiting_for_link = State()
 
+# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ---
+async def show_channels_list_msg(message_or_call, session: AsyncSession, user_id: int):
+    """Показывает список каналов. Работает и с Message, и с CallbackQuery."""
+    channels = await get_user_channels(session, user_id)
+    text = "📢 <b>Мои каналы</b>\n\nСписок каналов, где бот является администратором."
+    kb = channels_list_kb(channels)
+    
+    if isinstance(message_or_call, types.CallbackQuery):
+        await message_or_call.message.edit_text(text, reply_markup=kb)
+    else:
+        # Если вызываем из message (после успешного добавления)
+        await message_or_call.answer(text, reply_markup=kb)
+
+# --- ХЕНДЛЕРЫ ---
+
 @router.callback_query(F.data == "my_channels")
 async def show_channels(call: types.CallbackQuery, session: AsyncSession):
-    channels = await get_user_channels(session, call.from_user.id)
-    await call.message.edit_text(
-        "📢 <b>Мои каналы</b>\n\n"
-        "Список каналов, где бот является администратором.",
-        reply_markup=channels_list_kb(channels)
-    )
+    await show_channels_list_msg(call, session, call.from_user.id)
 
 @router.callback_query(F.data == "add_new_channel")
 async def ask_channel(call: types.CallbackQuery, state: FSMContext):
@@ -2371,8 +3689,12 @@ async def process_link_text(message: types.Message, state: FSMContext, session: 
     data = await state.get_data()
     ch_data = data['temp_channel']
     await add_channel(session, message.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link)
-    await message.answer(f"✅ Канал <b>{ch_data['title']}</b> добавлен!", reply_markup=back_to_dash())
+    
+    await message.answer(f"✅ Канал <b>{ch_data['title']}</b> успешно добавлен!")
     await state.clear()
+    
+    # ВОЗВРАТ К СПИСКУ КАНАЛОВ
+    await show_channels_list_msg(message, session, message.from_user.id)
 
 @router.callback_query(ChannelState.waiting_for_link, F.data == "skip_link_settings")
 async def process_link_skip(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
@@ -2386,55 +3708,277 @@ async def process_link_skip(call: types.CallbackQuery, state: FSMContext, sessio
         except: pass
 
     await add_channel(session, call.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], auto_link)
-    await call.message.edit_text(f"✅ Канал <b>{ch_data['title']}</b> добавлен!", reply_markup=back_to_dash())
+    
+    await call.message.delete()
+    await call.message.answer(f"✅ Канал <b>{ch_data['title']}</b> успешно добавлен!")
     await state.clear()
+
+    # ВОЗВРАТ К СПИСКУ КАНАЛОВ
+    await show_channels_list_msg(call.message, session, call.from_user.id)
 
 @router.callback_query(F.data.startswith("del_ch_"))
 async def delete_ch(call: types.CallbackQuery, session: AsyncSession):
     ch_id = int(call.data.split("_")[-1])
     await delete_channel_by_id(session, ch_id, call.from_user.id)
     await call.answer("🗑 Канал удален.")
+    # Обновляем список (редактируем сообщение)
     await show_channels(call, session)=== ./handlers/user/dashboard.py ===
 from aiogram import Router, types, Bot, F
 from aiogram.filters import CommandStart, CommandObject
+from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.exceptions import TelegramBadRequest # Импортируем исключение
 
-from database.requests.user_repo import register_user, get_user_stats
-from keyboards.inline.dashboard import main_dashboard_kb
+from database.requests.user_repo import register_user
+from keyboards.inline.dashboard import start_menu_kb, cabinet_kb
 from handlers.common.start import cmd_start as deep_link_logic
 
 router = Router()
 
 @router.message(CommandStart())
-async def smart_dashboard(message: types.Message, command: CommandObject, session: AsyncSession, bot: Bot):
-    # Если это диплинк (gw_123 или res_123), передаем управление в handlers/common/start.py
+async def smart_dashboard(
+    message: types.Message, 
+    command: CommandObject, 
+    session: AsyncSession, 
+    bot: Bot,
+    state: FSMContext
+):
+    # DeepLink (рефки и участие)
     if command.args and (command.args.startswith("gw_") or command.args.startswith("res_")):
-        await deep_link_logic(message, command, session, bot)
+        await deep_link_logic(message, command, session, bot, state)
         return
 
+    # Регистрация
     await register_user(session, message.from_user.id, message.from_user.username, message.from_user.full_name)
-
-    stats = await get_user_stats(session, message.from_user.id)
-    is_admin = (stats['active'] + stats['finished']) > 0
     
     text = (
-        f"👋 <b>Привет, {message.from_user.first_name}!</b>\n\n"
-        f"Добро пожаловать в личный кабинет.\n"
-        f"Здесь вы можете создавать розыгрыши и проверять свои результаты."
+        f"👋 <b>Привет, {message.from_user.first_name}!</b>\n"
+        f"Это платформа для проведения честных розыгрышей.\n\n"
+        f"Выберите действие:"
     )
 
-    await message.answer(text, reply_markup=main_dashboard_kb(is_admin))
+    await message.answer(text, reply_markup=start_menu_kb())
 
 @router.callback_query(F.data == "dashboard_home")
-async def back_home(call: types.CallbackQuery, session: AsyncSession):
-    stats = await get_user_stats(session, call.from_user.id)
-    is_admin = (stats['active'] + stats['finished']) > 0
-    await call.message.edit_text("👋 <b>Главное меню</b>", reply_markup=main_dashboard_kb(is_admin))=== ./handlers/user/__init__.py ===
-=== ./handlers/user/my_participations.py ===
+async def back_home(call: types.CallbackQuery):
+    try:
+        await call.message.edit_text(
+            "👋 <b>Главное меню</b>\nВыберите действие:", 
+            reply_markup=start_menu_kb()
+        )
+    except TelegramBadRequest:
+        # Если сообщение не изменилось - просто отвечаем на callback, чтобы убрать часики
+        await call.answer()
+
+@router.callback_query(F.data == "cabinet_hub")
+async def open_cabinet(call: types.CallbackQuery, session: AsyncSession):
+    text = (
+        "👤 <b>Кабинет организатора</b>\n\n"
+        f"🆔 ID: <code>{call.from_user.id}</code>\n"
+        "📊 Здесь вы управляете каналами и подпиской."
+    )
+    try:
+        await call.message.edit_text(text, reply_markup=cabinet_kb())
+    except TelegramBadRequest:
+        await call.answer()=== ./handlers/user/premium.py ===
+from aiogram import Router, types, F, Bot
+from aiogram.types import LabeledPrice, PreCheckoutQuery
+from sqlalchemy.ext.asyncio import AsyncSession
+from database.models.user import User
+from keyboards.inline.dashboard import premium_shop_kb
+
+router = Router()
+
+@router.callback_query(F.data == "premium_shop")
+async def show_shop(call: types.CallbackQuery, session: AsyncSession):
+    user = await session.get(User, call.from_user.id)
+    status_text = "✅ <b>У вас активен Premium!</b>" if user.is_premium else "❌ У вас нет активной подписки."
+    
+    text = (
+        "🧩 <b>Платные функции</b>\n\n"
+        f"Ваш статус: {status_text}\n\n"
+        "<b>🛡 Защита от ботов (Капча)</b>\n"
+        "Заставляет участников пройти проверку перед регистрацией. "
+        "Отсеивает 99% накрутки.\n\n"
+        "Стоимость: <b>50 ⭐️ Stars</b>"
+    )
+    await call.message.edit_text(text, reply_markup=premium_shop_kb())
+
+@router.callback_query(F.data == "buy_captcha")
+async def buy_process(call: types.CallbackQuery, bot: Bot):
+    await bot.send_invoice(
+        chat_id=call.from_user.id,
+        title="Premium Подписка",
+        description="Активация Капчи (Защита от ботов)",
+        payload="buy_premium_captcha", 
+        currency="XTR", 
+        prices=[LabeledPrice(label="Premium", amount=50)], 
+        provider_token="" # ВАЖНО: Для Telegram Stars поле должно быть пустым!
+    )
+    await call.answer()
+
+@router.pre_checkout_query()
+async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+@router.message(F.successful_payment)
+async def on_successful_payment(message: types.Message, session: AsyncSession):
+    payment = message.successful_payment
+    
+    if payment.invoice_payload == "buy_premium_captcha":
+        user = await session.get(User, message.from_user.id)
+        if user:
+            user.is_premium = True
+            await session.commit()
+            
+            await message.answer(
+                "🎉 <b>Оплата прошла успешно!</b>\n"
+                "Функция «Капча» теперь доступна в конструкторе.\n\n"
+            )=== ./handlers/user/__init__.py ===
+=== ./handlers/user/my_giveaways.py ===
+from aiogram import Router, types, Bot, F
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
+
+from database.requests.giveaway_repo import get_giveaways_by_owner, get_giveaway_by_id, count_giveaways_by_status
+from database.models.giveaway import Giveaway
+from database.models.winner import Winner
+from database.models.participant import Participant
+from database.models.required_channel import GiveawayRequiredChannel
+from keyboards.inline.dashboard import my_giveaways_hub_kb, giveaways_list_kb, active_gw_manage_kb, finished_gw_manage_kb
+from core.logic.game_actions import finish_giveaway_task
+from keyboards.inline.participation import join_keyboard
+from core.tools.formatters import format_giveaway_caption
+
+router = Router()
+
+# --- ХАБ ---
+@router.callback_query(F.data == "my_giveaways_hub")
+async def show_gw_hub(call: types.CallbackQuery, session: AsyncSession):
+    user_id = call.from_user.id
+    
+    # Считаем количество для кнопок
+    active_count = await count_giveaways_by_status(session, user_id, "active")
+    finished_count = await count_giveaways_by_status(session, user_id, "finished")
+    
+    await call.message.edit_text(
+        "📂 <b>История розыгрышей</b>\nВыберите категорию:", 
+        reply_markup=my_giveaways_hub_kb(active_count, finished_count)
+    )
+
+# --- СПИСКИ ---
+@router.callback_query(F.data.startswith("gw_list:"))
+async def show_gw_list(call: types.CallbackQuery, session: AsyncSession):
+    status = call.data.split(":")[1]
+    user_id = call.from_user.id
+    
+    gws = await get_giveaways_by_owner(session, user_id, limit=50)
+    filtered = [g for g in gws if g.status == status]
+    
+    if not filtered:
+        return await call.answer("📭 В этой категории пусто.", show_alert=True)
+    
+    title = "Актуальные" if status == 'active' else "Завершенные"
+    await call.message.edit_text(
+        f"📂 <b>{title} розыгрыши</b>",
+        reply_markup=giveaways_list_kb(filtered, status)
+    )
+
+# --- УПРАВЛЕНИЕ ---
+@router.callback_query(F.data.startswith("gw_manage:"))
+async def manage_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    gw_id = int(call.data.split(":")[1])
+    gw = await get_giveaway_by_id(session, gw_id)
+    
+    if not gw: return await call.answer("Не найдено")
+    
+    stats_info = f"🏆 Приз: {gw.prize_text}\n📅 Финиш: {gw.finish_time.strftime('%d.%m %H:%M')}"
+    
+    if gw.status == "active":
+        await call.message.edit_text(f"🟢 <b>Активный розыгрыш #{gw.id}</b>\n\n{stats_info}", reply_markup=active_gw_manage_kb(gw.id))
+    else:
+        link = None
+        try:
+            chat = await bot.get_chat(gw.channel_id)
+            if chat.username: link = f"https://t.me/{chat.username}/{gw.message_id}"
+        except: pass
+        
+        await call.message.edit_text(f"⚫️ <b>Завершенный розыгрыш #{gw.id}</b>\n\n{stats_info}", reply_markup=finished_gw_manage_kb(gw.id, link))
+
+# --- ДЕЙСТВИЯ ---
+
+# 1. РЕПОСТ
+@router.callback_query(F.data.startswith("gw_act:repost:"))
+async def repost_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    gw_id = int(call.data.split(":")[2])
+    gw = await get_giveaway_by_id(session, gw_id)
+    if not gw or gw.status != 'active': return await call.answer("Ошибка статуса", show_alert=True)
+    
+    # Удаляем старый пост
+    try:
+        await bot.delete_message(gw.channel_id, gw.message_id)
+    except: pass
+
+    bot_info = await bot.get_me()
+    kb = join_keyboard(bot_info.username, gw.id)
+    
+    from database.requests.participant_repo import get_participants_count
+    from core.tools.timezone import to_utc
+    
+    count = await get_participants_count(session, gw_id)
+    caption = format_giveaway_caption(gw.prize_text, gw.winners_count, to_utc(gw.finish_time), count)
+    
+    try:
+        if gw.media_file_id and gw.media_type:
+            if gw.media_type == 'photo':
+                msg = await bot.send_photo(gw.channel_id, gw.media_file_id, caption=caption, reply_markup=kb)
+            elif gw.media_type == 'video':
+                msg = await bot.send_video(gw.channel_id, gw.media_file_id, caption=caption, reply_markup=kb)
+            else:
+                msg = await bot.send_message(gw.channel_id, text=caption, reply_markup=kb)
+        else:
+             msg = await bot.send_message(gw.channel_id, text=caption, reply_markup=kb)
+        
+        gw.message_id = msg.message_id
+        await session.commit()
+        await call.answer("✅ Пост опубликован повторно!", show_alert=True)
+    except Exception as e:
+        await call.answer(f"Ошибка публикации: {e}", show_alert=True)
+
+# 2. ЗАВЕРШЕНИЕ
+@router.callback_query(F.data.startswith("gw_act:finish:"))
+async def finish_gw_now(call: types.CallbackQuery):
+    gw_id = int(call.data.split(":")[2])
+    await call.answer("Завершаю...", show_alert=False)
+    await finish_giveaway_task(gw_id)
+    await call.message.edit_text("✅ Розыгрыш принудительно завершен.")
+
+# 3. УДАЛЕНИЕ
+@router.callback_query(F.data.startswith("gw_act:delete:"))
+async def delete_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    gw_id = int(call.data.split(":")[2])
+    gw = await get_giveaway_by_id(session, gw_id)
+    
+    if gw:
+        try:
+            await bot.delete_message(gw.channel_id, gw.message_id)
+        except: pass
+        
+        # Удаляем всё связанное
+        await session.execute(delete(Winner).where(Winner.giveaway_id == gw_id))
+        await session.execute(delete(Participant).where(Participant.giveaway_id == gw_id))
+        await session.execute(delete(GiveawayRequiredChannel).where(GiveawayRequiredChannel.giveaway_id == gw_id))
+        await session.delete(gw)
+        await session.commit()
+        
+    await call.answer("🗑 Розыгрыш удален.", show_alert=True)
+    await show_gw_hub(call, session)=== ./handlers/user/my_participations.py ===
 import math
 from aiogram import Router, types, F, Bot
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
+from database.models.winner import Winner  # <--- ВАЖНО
 from database.requests.participant_repo import get_user_participations_detailed, count_user_participations
 from database.requests.giveaway_repo import get_giveaway_by_id, get_giveaways_by_owner, count_giveaways_by_owner
 from database.requests.user_repo import get_user_stats
@@ -2464,6 +4008,7 @@ async def show_participation_list(call: types.CallbackQuery, session: AsyncSessi
     offset = page * limit
     user_id = call.from_user.id
     
+    # Получаем список розыгрышей
     giveaways = await get_user_participations_detailed(session, user_id, status, limit, offset)
     total_count = await count_user_participations(session, user_id, status)
     
@@ -2474,9 +4019,23 @@ async def show_participation_list(call: types.CallbackQuery, session: AsyncSessi
     status_text = "В которых участвую" if status == 'active' else "Завершенные (Участие)"
     prefix = f"part_list:{status}"
     
+    # --- ИСПРАВЛЕНИЕ: Получаем список побед ---
+    won_ids = set()
+    if status == 'finished' and giveaways:
+        # Собираем ID загруженных розыгрышей
+        gw_ids = [gw.id for gw in giveaways]
+        # Смотрим, в каких из них юзер есть в таблице winners
+        stmt = select(Winner.giveaway_id).where(
+            Winner.giveaway_id.in_(gw_ids),
+            Winner.user_id == user_id
+        )
+        result = await session.execute(stmt)
+        won_ids = set(result.scalars().all())
+    # ------------------------------------------
+    
     await call.message.edit_text(
         f"📂 <b>{status_text}</b>\nСтраница {page+1} из {total_pages}",
-        reply_markup=universal_list_kb(giveaways, page, total_pages, prefix, user_id)
+        reply_markup=universal_list_kb(giveaways, page, total_pages, prefix, won_ids=won_ids)
     )
 
 # 3. СПИСОК СОЗДАННЫХ МНОЙ
@@ -2499,7 +4058,7 @@ async def show_created_list(call: types.CallbackQuery, session: AsyncSession):
     
     await call.message.edit_text(
         f"📂 <b>Мои розыгрыши (Созданные)</b>\nСтраница {page+1} из {total_pages}",
-        reply_markup=universal_list_kb(giveaways, page, total_pages, "created_list", user_id)
+        reply_markup=universal_list_kb(giveaways, page, total_pages, "created_list", user_id=user_id)
     )
 
 # 4. ПРОСМОТР ДЕТАЛЕЙ (УЧАСТИЕ)
@@ -2509,21 +4068,32 @@ async def view_participation(call: types.CallbackQuery, session: AsyncSession, b
     gw = await get_giveaway_by_id(session, gw_id)
     if not gw: return await call.answer("Не найдено")
 
-    user_id_str = str(call.from_user.id)
+    user_id = call.from_user.id
+    
     if gw.status == 'active':
         st_text = "⏳ Активен"
         res_text = "🤞 Вы участвуете"
     else:
         st_text = "🏁 Завершен"
-        if gw.winner_ids and user_id_str in gw.winner_ids.split(","):
+        # --- ИСПРАВЛЕНИЕ: Проверка через таблицу Winner ---
+        winner_check = await session.scalar(
+            select(Winner).where(Winner.giveaway_id == gw.id, Winner.user_id == user_id)
+        )
+        
+        if winner_check:
             res_text = "🏆 <b>ВЫ ВЫИГРАЛИ!</b>"
         else:
             res_text = "❌ Вы не выиграли"
+        # --------------------------------------------------
 
     post_link = None
     try:
         chat = await bot.get_chat(gw.channel_id)
-        if chat.username: post_link = f"https://t.me/{chat.username}/{gw.message_id}"
+        if chat.username: 
+            post_link = f"https://t.me/{chat.username}/{gw.message_id}"
+        elif chat.invite_link:
+             # Если приватный канал, ссылку на пост сложно дать, даем на канал
+             post_link = chat.invite_link
     except: pass
 
     await call.message.edit_text(
