@@ -12,18 +12,24 @@ from database.requests.participant_repo import (
     add_participant, 
     increment_ticket, 
     is_circular_referral, 
-    is_participant_active
+    is_participant_active,
+    add_pending_referral, # <---
+    get_pending_referral  # <---
 )
 from keyboards.inline.participation import check_subscription_kb
 from core.logic.ticket_gen import get_unique_ticket
 from core.services.ref_service import create_ref_link
-from core.services.checker_service import is_user_subscribed # Импорт
+from core.services.checker_service import is_user_subscribed
 
 router = Router()
 
 class JoinState(StatesGroup):
     captcha = State()
     subscribing = State()
+
+@router.callback_query(F.data == "broken_link_alert")
+async def broken_link_handler(call: types.CallbackQuery):
+    await call.answer("⚠️ Ссылка на канал отсутствует. Попробуйте найти его по названию или сообщите администратору.", show_alert=True)
 
 async def try_join_giveaway(
     message_or_call: types.Message | types.CallbackQuery, 
@@ -71,7 +77,11 @@ async def try_join_giveaway(
         except: pass
         return
 
-    await state.update_data(gw_id=gw_id, pending_referrer_id=referrer_id)
+    # Сохраняем реферала в БД (надежно)
+    if referrer_id:
+        await add_pending_referral(session, user.id, referrer_id, gw_id)
+    
+    await state.update_data(gw_id=gw_id)
 
     if gw.is_captcha_enabled:
         await state.set_state(JoinState.captcha)
@@ -81,8 +91,7 @@ async def try_join_giveaway(
         await message.answer("🛡 <b>Проверка на бота</b>\nНажмите кнопку ниже.", reply_markup=kb)
         return
 
-    # Первичная проверка (без force_check, верим кешу если есть)
-    await check_subscriptions_step(message, user.id, gw, session, bot, state, force_check=False)
+    await check_subscriptions_step(message, user.id, gw, session, bot, state)
 
 @router.callback_query(JoinState.captcha, F.data == "captcha_solved")
 async def captcha_solved(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
@@ -95,33 +104,21 @@ async def captcha_solved(call: types.CallbackQuery, state: FSMContext, session: 
         return await state.clear()
 
     await call.message.delete()
-    await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state, force_check=False)
+    await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state)
 
-# --- УМНАЯ ПРОВЕРКА ПОДПИСОК ---
-async def check_subscriptions_step(
-    message: types.Message, 
-    user_id: int, 
-    gw: Giveaway, 
-    session: AsyncSession, 
-    bot: Bot, 
-    state: FSMContext,
-    force_check: bool = False # Новый параметр
-):
-    """
-    Проверяет подписки.
-    force_check=True используется при нажатии кнопки "Проверить", чтобы обойти кеш.
-    """
+async def check_subscriptions_step(message: types.Message, user_id: int, gw: Giveaway, session: AsyncSession, bot: Bot, state: FSMContext, force_check: bool = False):
     reqs = await get_required_channels(session, gw.id)
     
     channels_status = []
     all_subscribed = True
 
-    # 1. Проверяем основной канал
+    # 1. Основной канал
     try:
         is_sub = await is_user_subscribed(bot, gw.channel_id, user_id, force_check=force_check)
         
         chat = await bot.get_chat(gw.channel_id)
-        link = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else "...")
+        # Безопасное получение ссылки
+        link = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else None)
         
         channels_status.append({
             'title': f"📢 {chat.title}", 
@@ -133,13 +130,16 @@ async def check_subscriptions_step(
     except Exception:
         pass 
 
-    # 2. Проверяем спонсоров
+    # 2. Спонсоры
     for r in reqs:
         is_sub = await is_user_subscribed(bot, r.channel_id, user_id, force_check=force_check)
         
+        # У спонсоров ссылка хранится в БД, но проверим на None
+        link = r.channel_link if r.channel_link and len(r.channel_link) > 5 else None
+        
         channels_status.append({
             'title': r.channel_title,
-            'link': r.channel_link,
+            'link': link,
             'is_subscribed': is_sub
         })
         if not is_sub: all_subscribed = False
@@ -168,7 +168,6 @@ async def on_check_subscription_btn(call: types.CallbackQuery, session: AsyncSes
     if not gw or gw.status != 'active':
         return await call.message.edit_text("❌ Розыгрыш завершен.")
 
-    # ВАЖНО: Ставим force_check=True, так как юзер нажал кнопку
     await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state, force_check=True)
     await call.answer()
 
@@ -180,8 +179,8 @@ async def finalize_registration(
     bot: Bot, 
     state: FSMContext
 ):
-    data = await state.get_data()
-    referrer_id = data.get("pending_referrer_id")
+    # Достаем реферера из БД (надежно)
+    referrer_id = await get_pending_referral(session, user_id, gw.id)
     
     final_referrer = None
     

@@ -48,9 +48,13 @@ async def get_required_channels(session: AsyncSession, gw_id: int):
     result = await session.execute(stmt)
     return result.scalars().all()
 
-async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: int = 50):
+# --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ---
+async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: int = 50, offset: int = 0):
+    """Получает список розыгрышей создателя с пагинацией"""
     stmt = select(Giveaway).where(Giveaway.owner_id == owner_id)\
-        .order_by(desc(Giveaway.id)).limit(limit)
+        .order_by(desc(Giveaway.id))\
+        .limit(limit)\
+        .offset(offset)  # <--- Добавлено смещение
     result = await session.execute(stmt)
     return result.scalars().all()
 
@@ -63,7 +67,6 @@ async def count_giveaways_by_owner(session: AsyncSession, owner_id: int) -> int:
     stmt = select(func.count(Giveaway.id)).where(Giveaway.owner_id == owner_id)
     return await session.scalar(stmt)
 
-# --- НОВАЯ ФУНКЦИЯ ---
 async def count_giveaways_by_status(session: AsyncSession, owner_id: int, status: str) -> int:
     """Считает количество розыгрышей определенного статуса у владельца"""
     stmt = select(func.count(Giveaway.id)).where(

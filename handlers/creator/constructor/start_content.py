@@ -18,7 +18,7 @@ router = Router()
 @router.callback_query(F.data == "create_gw_init")
 @router.message(Command("new"))
 async def start_constructor(event: types.Message | types.CallbackQuery, state: FSMContext):
-    # Очистка старого интерфейса, если был
+    # Очистка старого интерфейса
     manager = await get_message_manager(state)
     if isinstance(event, types.CallbackQuery):
         await manager.delete_all(event.bot, event.message.chat.id)
@@ -41,13 +41,11 @@ async def start_constructor(event: types.Message | types.CallbackQuery, state: F
     
     if isinstance(event, types.CallbackQuery):
         msg = await event.message.answer(hint_text, reply_markup=kb)
-        # Удаляем старое сообщение меню
         try: await event.message.delete()
         except: pass
     else:
         msg = await event.answer(hint_text, reply_markup=kb)
     
-    # Сохраняем ID инструкции, чтобы потом удалить
     manager = await get_message_manager(state)
     manager.set_instruction_message(msg)
     await update_message_manager(state, manager)
@@ -61,47 +59,84 @@ async def cancel_creation(call: types.CallbackQuery, state: FSMContext, bot: Bot
 
 @router.message(ConstructorState.editing_content)
 async def receive_content(message: types.Message, state: FSMContext, bot: Bot):
-    # 1. Удаляем сообщение пользователя сразу
+    # Удаляем сообщение пользователя
     try: await message.delete()
     except: pass
 
-    # 2. Анализ контента
-    media_id, media_type = None, None
-    if message.photo: media_id, media_type = message.photo[-1].file_id, "photo"
-    elif message.video: media_id, media_type = message.video.file_id, "video"
-    elif message.animation: media_id, media_type = message.animation.file_id, "animation"
+    manager = await get_message_manager(state)
 
+    # 1. Проверка на поддерживаемые типы контента
+    media_id, media_type = None, None
+    
+    if message.photo:
+        media_id, media_type = message.photo[-1].file_id, "photo"
+    elif message.video:
+        media_id, media_type = message.video.file_id, "video"
+    elif message.animation:
+        media_id, media_type = message.animation.file_id, "animation"
+    elif message.document or message.voice or message.audio or message.sticker or message.video_note:
+        # Если прислали файл, голосовое, стикер или кружочек - ругаемся
+        err_msg = await message.answer(
+            "❌ <b>Неподдерживаемый формат!</b>\n\n"
+            "Бот принимает только:\n"
+            "• Обычный текст\n"
+            "• Фото\n"
+            "• Видео\n"
+            "• GIF (Анимация)\n\n"
+            "Пожалуйста, пришлите пост в поддерживаемом формате."
+        )
+        manager.add_temp_message(err_msg)
+        await update_message_manager(state, manager)
+        return
+
+    # 2. Получаем текст (HTML)
     html_content = get_message_html(message)
     safe_text = sanitize_text(html_content)
     
-    # 3. Валидация длины
-    # Лимиты Telegram: 1024 для медиа, 4096 для чистого текста
+    # 3. ЖЕСТКАЯ проверка лимитов Telegram
+    # Если есть медиа -> лимит 1024. Если нет -> 4096.
     limit = 1024 if media_type else 4096
     
     if len(safe_text) > limit:
-        err_msg = await message.answer(
-            f"⚠️ <b>Текст слишком длинный!</b>\n\n"
-            f"Для поста с фото/видео: до 1024 символов.\n"
-            f"Для простого текста: до 4096 символов.\n"
-            f"У вас: {len(safe_text)}."
-        )
-        # Добавляем во временные, чтобы удалилось при следующем шаге
-        manager = await get_message_manager(state)
+        if media_type:
+            text_err = (
+                f"❌ <b>Слишком длинное описание для медиа!</b>\n\n"
+                f"Telegram ограничивает подпись к фото/видео до <b>1024 символов</b>.\n"
+                f"У вас: {len(safe_text)} символов.\n\n"
+                f"📉 <b>Что делать:</b>\n"
+                f"1. Сократите текст.\n"
+                f"2. Или отправьте текст БЕЗ картинки (тогда лимит 4096)."
+            )
+        else:
+            text_err = (
+                f"❌ <b>Текст слишком длинный!</b>\n\n"
+                f"Лимит Telegram: <b>4096 символов</b>.\n"
+                f"У вас: {len(safe_text)}."
+            )
+            
+        err_msg = await message.answer(text_err)
         manager.add_temp_message(err_msg)
         await update_message_manager(state, manager)
         return
 
+    # 4. Проверка на пустоту (если прислали только картинку без текста, или текст пустой)
+    # Хотя пустая картинка допустима, но для розыгрыша нужен текст условий.
     if not safe_text and not media_type:
-        err_msg = await message.answer("❌ Пришлите текст или фото с описанием.")
-        manager = await get_message_manager(state)
+        err_msg = await message.answer("❌ Сообщение пустое. Напишите текст условий розыгрыша.")
+        manager.add_temp_message(err_msg)
+        await update_message_manager(state, manager)
+        return
+        
+    if not safe_text and media_type:
+        # Если прислали просто картинку без описания
+        err_msg = await message.answer("⚠️ <b>Добавьте описание!</b>\n\nПришлите фото/видео сразу с текстом (в подписи), чтобы участники знали условия.")
         manager.add_temp_message(err_msg)
         await update_message_manager(state, manager)
         return
     
-    # 4. Сохраняем данные
+    # 5. Сохраняем данные
     await state.update_data(text=safe_text, media_file_id=media_id, media_type=media_type)
     await state.set_state(ConstructorState.init)
     
-    # 5. Полная перерисовка интерфейса
-    # (Это удалит инструкцию "Шаг 1" и любые ошибки, затем покажет превью и кнопки)
+    # 6. Перерисовка интерфейса
     await refresh_constructor_view(bot, state, message.chat.id, hint_key='main_channel')

@@ -41,7 +41,7 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
     caption = format_giveaway_caption(data['text'], data['winners'], finish_dt_utc, 0)
     keyboard = join_keyboard(bot_info.username, 0)
     
-    # Публикация
+    # 1. Публикация в канал
     try:
         if data['media_type'] == 'photo':
             msg = await bot.send_photo(main_ch['id'], data['media_file_id'], caption=caption, reply_markup=keyboard)
@@ -51,9 +51,9 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
             msg = await bot.send_message(main_ch['id'], text=caption, reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Publish failed: {e}")
-        return await call.answer(f"❌ Ошибка публикации: {e}", show_alert=True)
+        return await call.answer(f"❌ Ошибка публикации (бот не админ?): {e}", show_alert=True)
 
-    # Сохранение в БД
+    # 2. Сохранение в БД
     try:
         gw_id = await create_giveaway(
             session, call.from_user.id, main_ch['id'], msg.message_id, 
@@ -65,11 +65,12 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
         )
     except Exception as e:
         logger.critical(f"DB Error: {e}")
+        # Пытаемся удалить пост, раз в БД не попало
         try: await bot.delete_message(main_ch['id'], msg.message_id)
         except: pass
         return await call.answer("❌ Критическая ошибка БД", show_alert=True)
 
-    # Обновление кнопки
+    # 3. Обновление кнопки (добавляем ID розыгрыша)
     try:
         await bot.edit_message_reply_markup(
             chat_id=main_ch['id'], 
@@ -78,13 +79,13 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
         )
     except: pass
     
-    # Форвард спонсорам
+    # 4. Форвард спонсорам
     for sp in data['sponsors']:
         try:
             await bot.forward_message(chat_id=sp['id'], from_chat_id=main_ch['id'], message_id=msg.message_id)
         except: pass
 
-    # Планировщик
+    # 5. Запуск планировщика
     try:
         scheduler.add_job(
             finish_giveaway_task, "date", run_date=finish_dt_utc, 
@@ -93,14 +94,22 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
     except Exception as e:
         logger.error(f"Scheduler error: {e}")
     
-    # --- ФИНАЛЬНАЯ ОЧИСТКА ---
+    # 6. Финальная очистка интерфейса
     manager = await get_message_manager(state)
-    # Удаляем ВСЕ сообщения конструктора
     await manager.delete_all(bot, call.message.chat.id)
     
     link = main_ch['link'] if main_ch['link'] != 'private' else "канал"
+    
+    # Предупреждение о безопасности
+    warning_text = (
+        "\n\n⚠️ <b>Важно:</b> Если вы отредактируете пост в канале вручную (измените условия или приз), "
+        "бот об этом не узнает. Информация в базе данных останется старой. Если нужно изменить текст то делайте это в личном кабинете"
+    )
+
     await call.message.answer(
-        f"✅ <b>Опубликовано!</b>\n<a href='{link}'>Перейти к посту</a>\n\n🏆 Победителей: {data['winners']}", 
+        f"✅ <b>Опубликовано!</b>\n<a href='{link}'>Перейти к посту</a>\n\n"
+        f"🏆 Победителей: {data['winners']}"
+        f"{warning_text}", 
         disable_web_page_preview=True
     )
     

@@ -8,7 +8,8 @@ from .models.giveaway import Giveaway
 from .models.participant import Participant
 from .models.channel import Channel
 from .models.required_channel import GiveawayRequiredChannel
-from .models.winner import Winner # <--- НОВОЕ
+from .models.winner import Winner
+from .models.pending_referral import PendingReferral # <--- НОВОЕ
 
 engine = create_async_engine(
     url=config.DB_DNS,

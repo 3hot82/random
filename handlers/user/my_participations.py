@@ -14,21 +14,16 @@ router = Router()
 # 1. ХАБ (ГЛАВНОЕ МЕНЮ РАЗДЕЛА)
 @router.callback_query(F.data.in_({"my_participations", "giveaways_hub"}))
 async def show_hub(call: types.CallbackQuery, session: AsyncSession):
-    # Если мы вернулись назад, и в чате висит скопированный пост розыгрыша (картинка) - удаляем его
-    # (Это сложно отследить без ID, поэтому просто редактируем текущее сообщение меню)
-    
     user_id = call.from_user.id
+    
     stats = await get_user_stats(session, user_id)
     has_created = (stats['active'] + stats['finished']) > 0
     
     active_count = await count_user_participations(session, user_id, "active")
     finished_count = await count_user_participations(session, user_id, "finished")
     
-    # Пытаемся редактировать, если это возможно. 
-    # Если до этого мы присылали картинку (в просмотре), то редактирование может не сработать,
-    # поэтому удаляем старое и шлем новое.
-    try:
-        await call.message.delete()
+    # Удаляем старое сообщение (особенно если там была картинка)
+    try: await call.message.delete()
     except: pass
 
     await call.message.answer(
@@ -68,7 +63,6 @@ async def show_participation_list(call: types.CallbackQuery, session: AsyncSessi
         result = await session.execute(stmt)
         won_ids = set(result.scalars().all())
     
-    # Удаляем старое (чтобы очистить чат от картинок, если они были) и шлем список
     try: await call.message.delete()
     except: pass
 
@@ -101,7 +95,7 @@ async def show_created_list(call: types.CallbackQuery, session: AsyncSession):
         reply_markup=universal_list_kb(giveaways, page, total_pages, "created_list", won_ids=set())
     )
 
-# 4. ПРОСМОТР ДЕТАЛЕЙ (УЧАСТИЕ) - ВОТ ТУТ ОСНОВНЫЕ ИЗМЕНЕНИЯ
+# 4. ПРОСМОТР ДЕТАЛЕЙ (УЧАСТИЕ)
 @router.callback_query(F.data.startswith("part_view:"))
 async def view_participation(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
     gw_id = int(call.data.split(":")[-1])
@@ -110,24 +104,21 @@ async def view_participation(call: types.CallbackQuery, session: AsyncSession, b
 
     user_id = call.from_user.id
     
-    # 1. Удаляем меню списка, чтобы не мешалось
     try: await call.message.delete()
     except: pass
 
-    # 2. Пытаемся СКОПИРОВАТЬ пост из канала (чтобы показать картинку)
-    # Используем copy_message, чтобы показать контент, но убираем оригинальные кнопки
+    # 1. Показываем контент (картинку/видео) копированием
     try:
         await bot.copy_message(
             chat_id=user_id,
             from_chat_id=gw.channel_id,
             message_id=gw.message_id,
-            reply_markup=None # Убираем кнопку "Участвовать", она тут не нужна
+            reply_markup=None
         )
     except Exception:
-        # Если пост удален или бот не может его скопировать - не страшно, просто идем дальше
-        pass
+        pass # Если пост удален или бот не имеет доступа, просто идем дальше
 
-    # 3. Формируем статус и ссылку
+    # 2. Статус
     if gw.status == 'active':
         st_text = "⏳ Активен"
         res_text = "🤞 Вы участвуете"
@@ -141,21 +132,24 @@ async def view_participation(call: types.CallbackQuery, session: AsyncSession, b
         else:
             res_text = "❌ Вы не выиграли"
 
-    # 4. Генерация ссылки (включая приватные каналы)
+    # 3. Генерация ссылки (УНИФИЦИРОВАННАЯ ЛОГИКА)
     post_link = None
     try:
         chat = await bot.get_chat(gw.channel_id)
-        if chat.username: 
+        
+        if chat.username:
+            # Публичный канал: t.me/username/id
             post_link = f"https://t.me/{chat.username}/{gw.message_id}"
         else:
-            # Логика для приватных каналов: ID обычно начинается с -100
-            # Ссылка выглядит как t.me/c/1234567890/ID_MSG
-            # Нам нужно убрать "-100" из ID канала
+            # Приватный канал: t.me/c/clean_id/id
+            # ID приватных каналов начинаются с -100, для ссылки это нужно убрать
             clean_id = str(gw.channel_id).replace("-100", "")
             post_link = f"https://t.me/c/{clean_id}/{gw.message_id}"
-    except: pass
+            
+    except Exception:
+        # Если бот кикнут и не может получить инфо о чате, ссылка будет None
+        pass
 
-    # 5. Отправляем инфо-сообщение с кнопками управления
     await call.message.answer(
         f"📋 <b>Информация об участии</b>\n\n"
         f"🎁 Приз: <b>{gw.prize_text}</b>\n"
@@ -174,7 +168,6 @@ async def view_created(call: types.CallbackQuery, session: AsyncSession, bot: Bo
     try: await call.message.delete()
     except: pass
 
-    # Тоже показываем превью поста
     try:
         await bot.copy_message(
             chat_id=call.from_user.id,
