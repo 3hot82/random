@@ -36,7 +36,10 @@ async def create_giveaway(
     return new_gw.id
 
 async def get_giveaway_by_id(session: AsyncSession, gw_id: int) -> Giveaway | None:
-    return await session.get(Giveaway, gw_id)
+    from sqlalchemy import select
+    stmt = select(Giveaway).where(Giveaway.id == gw_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
 
 async def get_active_giveaways(session: AsyncSession):
     stmt = select(Giveaway).where(Giveaway.status == "active")

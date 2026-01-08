@@ -1,6 +1,6 @@
 from typing import List
 from pydantic_settings import BaseSettings
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, ConfigDict
 
 class Settings(BaseSettings):
     BOT_TOKEN: SecretStr
@@ -25,8 +25,6 @@ class Settings(BaseSettings):
             return [v]
         return v
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 config = Settings()
