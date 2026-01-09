@@ -9,15 +9,8 @@ from filters.is_super_admin import IsSuperAdmin
 from database.models.user import User
 from database.models.giveaway import Giveaway
 from database.models.participant import Participant
-from keyboards.callback_data import StatsAction, NavigationAction
-from keyboards.inline.admin_panel import (
-    stats_main_keyboard,
-    stats_growth_keyboard,
-    stats_premium_keyboard,
-    stats_giveaways_keyboard,
-    stats_participations_keyboard,
-    stats_refresh_keyboard
-)
+from keyboards.callback_data import StatsAction
+from keyboards.admin_keyboards import AdminKeyboardFactory
 
 router = Router()
 
@@ -171,7 +164,7 @@ async def show_stats_main(call: CallbackQuery, session: AsyncSession):
     )
     
     try:
-        await call.message.edit_text(stats_text, reply_markup=stats_main_keyboard())
+        await call.message.edit_text(stats_text, reply_markup=AdminKeyboardFactory.create_stats_menu())
     except Exception as e:
         # Если сообщение не изменилось, Telegram возвращает ошибку
         # Просто игнорируем эту ошибку и отвечаем пустым ответом
@@ -196,7 +189,7 @@ async def show_stats_growth(call: CallbackQuery, session: AsyncSession):
     )
     
     try:
-        await call.message.edit_text(stats_text, reply_markup=stats_growth_keyboard())
+        await call.message.edit_text(stats_text, reply_markup=AdminKeyboardFactory.create_stats_menu())
     except Exception as e:
         # Если сообщение не изменилось, Telegram возвращает ошибку
         # Просто игнорируем эту ошибку и отвечаем пустым ответом
@@ -221,7 +214,7 @@ async def show_stats_premium(call: CallbackQuery, session: AsyncSession):
     )
     
     try:
-        await call.message.edit_text(stats_text, reply_markup=stats_premium_keyboard())
+        await call.message.edit_text(stats_text, reply_markup=AdminKeyboardFactory.create_stats_menu())
     except Exception as e:
         # Если сообщение не изменилось, Telegram возвращает ошибку
         # Просто игнорируем эту ошибку и отвечаем пустым ответом
@@ -248,7 +241,7 @@ async def show_stats_giveaways(call: CallbackQuery, session: AsyncSession):
     )
     
     try:
-        await call.message.edit_text(stats_text, reply_markup=stats_giveaways_keyboard())
+        await call.message.edit_text(stats_text, reply_markup=AdminKeyboardFactory.create_stats_menu())
     except Exception as e:
         # Если сообщение не изменилось, Telegram возвращает ошибку
         # Просто игнорируем эту ошибку и отвечаем пустым ответом
@@ -272,7 +265,7 @@ async def show_stats_participations(call: CallbackQuery, session: AsyncSession):
     )
     
     try:
-        await call.message.edit_text(stats_text, reply_markup=stats_participations_keyboard())
+        await call.message.edit_text(stats_text, reply_markup=AdminKeyboardFactory.create_stats_menu())
     except Exception as e:
         # Если сообщение не изменилось, Telegram возвращает ошибку
         # Просто игнорируем эту ошибку и отвечаем пустым ответом
@@ -304,7 +297,7 @@ async def refresh_stats(call: CallbackQuery, session: AsyncSession):
     )
     
     try:
-        await call.message.edit_text(stats_text, reply_markup=stats_main_keyboard())
+        await call.message.edit_text(stats_text, reply_markup=AdminKeyboardFactory.create_stats_menu())
         await call.answer("📊 Статистика обновлена!", show_alert=False)
     except Exception as e:
         # Если сообщение не изменилось, Telegram возвращает ошибку
@@ -405,7 +398,7 @@ async def show_participations_avg(call: CallbackQuery, session: AsyncSession):
 
 
 # Обработка навигации "Назад" из статистики
-@router.callback_query(IsSuperAdmin(), NavigationAction.filter(F.action == "back"))
+@router.callback_query(IsSuperAdmin(), F.data == "admin_menu")
 async def navigate_back(call: CallbackQuery, session: AsyncSession):
     """Обработка навигации назад"""
     # Возвращаем в главное меню администратора

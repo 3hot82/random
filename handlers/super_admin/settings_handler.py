@@ -3,7 +3,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from filters.is_admin import IsAdmin
-from keyboards.inline.admin_panel import settings_keyboard
+from keyboards.admin_keyboards import AdminKeyboardFactory
 
 
 router = Router()
@@ -11,7 +11,7 @@ router = Router()
 
 @router.callback_query(IsAdmin(), F.data == "admin_settings")
 async def show_settings_menu(call: CallbackQuery):
-    kb = settings_keyboard()
+    kb = AdminKeyboardFactory.create_settings_menu()
     await call.message.edit_text("⚙️ <b>Настройки</b>\n\nВыберите категорию настроек:", reply_markup=kb)
 
 
@@ -44,7 +44,7 @@ async def show_general_settings(call: CallbackQuery):
         "• Создать систему применения изменений"
     )
     
-    kb = settings_keyboard()
+    kb = AdminKeyboardFactory.create_settings_menu()
     await call.message.edit_text(settings_info, reply_markup=kb)
 
 
@@ -69,7 +69,7 @@ async def show_security_settings(call: CallbackQuery):
         "• Создать систему применения изменений"
     )
     
-    kb = settings_keyboard()
+    kb = AdminKeyboardFactory.create_settings_menu()
     await call.message.edit_text(security_settings_info, reply_markup=kb)
 
 
@@ -93,5 +93,5 @@ async def show_backup_options(call: CallbackQuery):
         "• Создать систему уведомлений о копировании"
     )
     
-    kb = settings_keyboard()
+    kb = AdminKeyboardFactory.create_settings_menu()
     await call.message.edit_text(backup_info, reply_markup=kb)

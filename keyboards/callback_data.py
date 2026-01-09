@@ -10,6 +10,16 @@ class AdminAction(CallbackData, prefix="adm"):
     id: int
     sig: str
 
+
+class GiveawayAction(CallbackData, prefix="gw"):
+    """
+    Callback data для действий с розыгрышем
+    action: manage, view, edit, finish, delete, rig, participants
+    giveaway_id: ID розыгрыша
+    """
+    action: str
+    giveaway_id: int
+
 class JoinAction(CallbackData, prefix="join"):
     """
     Данные для кнопки участия.
@@ -74,18 +84,6 @@ class LogsAction(CallbackData, prefix="logs"):
     """
     action: str
 
-class GiveawaysAction(CallbackData, prefix="giveaways"):
-    """
-    Callback data для раздела розыгрышей
-    action: main, list, search, view, edit, finish, delete, rig, participants, filter, filter_active, filter_finished, filter_pending, filter_owner, filter_date
-    giveaway_id: int (опционально)
-    page: int (опционально)
-    """
-    action: str
-    giveaway_id: int = 0
-    page: int = 1
-
-
 class GiveawaysPagination(CallbackData, prefix="gwpag"):
     """
     Callback data для пагинации в списках розыгрышей
@@ -98,11 +96,49 @@ class GiveawaysPagination(CallbackData, prefix="gwpag"):
     filter_status: str = ""
 
 
-class NavigationAction(CallbackData, prefix="nav"):
+class BaseNavigationAction(CallbackData, prefix="nav"):
     """
-    Callback data для навигации
+    Базовая Callback data для навигации
     action: back, main_menu, section
     section: имя раздела для перехода
     """
     action: str
     section: str = ""
+
+
+class UserMenuAction(CallbackData, prefix="user_menu"):
+    """
+    Callback data для пользовательского меню
+    action: dashboard, giveaways_hub, my_channels, my_giveaways, premium
+    """
+    action: str
+
+
+class AdminMenuAction(CallbackData, prefix="admin_menu"):
+    """
+    Callback data для админ-меню
+    action: main, stats, users, giveaways, broadcast, security, settings, logs
+    """
+    action: str
+
+
+class UserListAction(CallbackData, prefix="user_list"):
+    """
+    Callback data для списка пользователей
+    action: list, search, manage, premium_list, blocked_list
+    user_id: int (опционально)
+    page: int (опционально)
+    """
+    action: str
+    user_id: int = 0
+    page: int = 1
+
+
+class PaginationAction(CallbackData, prefix="pagination"):
+    """
+    Callback data для пагинации
+    action: prev, next, goto
+    page: номер страницы
+    """
+    action: str
+    page: int = 1

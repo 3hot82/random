@@ -10,7 +10,7 @@ from database.models.pending_referral import PendingReferral
 
 async def add_participant(session: AsyncSession, user_id: int, giveaway_id: int, referrer_id: int = None, ticket_code: str = None) -> bool:
     stmt = insert(Participant).values(
-        user_id=user_id, 
+        user_id=user_id,
         giveaway_id=giveaway_id,
         referrer_id=referrer_id,
         ticket_code=ticket_code,
@@ -18,7 +18,7 @@ async def add_participant(session: AsyncSession, user_id: int, giveaway_id: int,
     ).on_conflict_do_nothing()
     
     result = await session.execute(stmt)
-    await session.commit()
+    # commit будет выполнен в middleware
     return result.rowcount > 0
 
 async def increment_ticket(session: AsyncSession, user_id: int, giveaway_id: int):
@@ -61,7 +61,7 @@ async def add_pending_referral(session: AsyncSession, user_id: int, referrer_id:
         set_=dict(referrer_id=referrer_id)
     )
     await session.execute(stmt)
-    await session.commit()
+    # commit будет выполнен в middleware
 
 async def get_pending_referral(session: AsyncSession, user_id: int, giveaway_id: int) -> int | None:
     """Получает и УДАЛЯЕТ временную связку (одноразовое чтение)"""
@@ -78,7 +78,7 @@ async def get_pending_referral(session: AsyncSession, user_id: int, giveaway_id:
             PendingReferral.giveaway_id == giveaway_id
         )
         await session.execute(del_stmt)
-        await session.commit()
+        # commit будет выполнен в middleware
         
     return referrer_id
 
@@ -103,10 +103,11 @@ async def get_weighted_candidates(session: AsyncSession, giveaway_id: int, limit
     return list(result.scalars().all())
 
 async def get_user_participations_detailed(session: AsyncSession, user_id: int, status: str = None, limit: int = 5, offset: int = 0):
+    from sqlalchemy.orm import selectinload
     stmt = select(Giveaway).join(Participant).where(Participant.user_id == user_id)
     if status:
         stmt = stmt.where(Giveaway.status == status)
-    stmt = stmt.order_by(desc(Giveaway.finish_time)).limit(limit).offset(offset)
+    stmt = stmt.options(selectinload(Giveaway.required_channels)).order_by(desc(Giveaway.finish_time)).limit(limit).offset(offset)
     result = await session.execute(stmt)
     return result.scalars().all()
 

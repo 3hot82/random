@@ -10,7 +10,7 @@ from filters.is_admin import IsAdmin
 from database.models.giveaway import Giveaway
 from database.models.participant import Participant
 from keyboards.callback_data import GiveawaysAction
-from keyboards.inline.admin_panel import giveaway_detail_keyboard
+from keyboards.admin_keyboards import AdminKeyboardFactory
 
 
 from ..states import AdminGiveawayState
@@ -53,8 +53,8 @@ async def show_giveaway_detail(call: CallbackQuery, callback_data: GiveawaysActi
     )
     
     # Кнопки для управления розыгрышем
-    kb = giveaway_detail_keyboard(giveaway_id)
-    
+    kb = AdminKeyboardFactory.create_giveaway_detail_menu(giveaway_id, is_super_admin=True)
+
     await call.message.edit_text(giveaway_info, reply_markup=kb)
 
 
@@ -284,8 +284,8 @@ async def show_giveaway_statistics(call: CallbackQuery, session: AsyncSession):
     stats_text += f"\nДата окончания: {giveaway.finish_time.strftime('%d.%m.%Y %H:%M') if giveaway.finish_time else 'Не указана'}"
     
     # Кнопки для управления
-    kb = giveaway_detail_keyboard(giveaway_id)
-    
+    kb = AdminKeyboardFactory.create_giveaway_detail_menu(giveaway_id, is_super_admin=True)
+
     await call.message.edit_text(stats_text, reply_markup=kb)
 
 

@@ -8,7 +8,7 @@ import asyncio
 
 from filters.is_admin import IsAdmin
 from database.models.user import User
-from keyboards.inline.admin_panel import broadcast_keyboard
+from keyboards.admin_keyboards import AdminKeyboardFactory
 
 
 router = Router()
@@ -21,7 +21,7 @@ class BroadcastState(StatesGroup):
 
 @router.callback_query(IsAdmin(), F.data == "admin_broadcast")
 async def show_broadcast_menu(call: CallbackQuery):
-    kb = broadcast_keyboard()
+    kb = AdminKeyboardFactory.create_broadcast_menu()
     await call.message.edit_text("📢 <b>Массовая рассылка</b>\n\nВыберите действие:", reply_markup=kb)
 
 
@@ -197,5 +197,5 @@ async def show_broadcast_status(call: CallbackQuery):
         "• Возможность отслеживания результатов"
     )
     
-    kb = broadcast_keyboard()
+    kb = AdminKeyboardFactory.create_broadcast_menu()
     await call.message.edit_text(status_text, reply_markup=kb.as_markup())

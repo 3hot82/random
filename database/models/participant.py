@@ -1,7 +1,7 @@
 # database/models/participant.py
 from datetime import datetime
 from sqlalchemy import BigInteger, ForeignKey, DateTime, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
 class Participant(Base):
@@ -16,6 +16,9 @@ class Participant(Base):
     
     # ID того, кто пригласил (храним реальный ID, а не хеш)
     referrer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True) 
-    
     # Текстовый код билета
     ticket_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    
+    # Связи с другими моделями
+    user: Mapped["User"] = relationship("User", lazy="selectin")
+    giveaway: Mapped["Giveaway"] = relationship("Giveaway", back_populates="participants", lazy="selectin")

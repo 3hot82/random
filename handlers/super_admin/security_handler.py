@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from filters.is_admin import IsAdmin
 from database.models.user import User
-from keyboards.inline.admin_panel import security_keyboard
+from keyboards.admin_keyboards import AdminKeyboardFactory
 
 
 router = Router()
@@ -14,7 +14,7 @@ router = Router()
 
 @router.callback_query(IsAdmin(), F.data == "admin_security")
 async def show_security_menu(call: CallbackQuery):
-    kb = security_keyboard()
+    kb = AdminKeyboardFactory.create_security_menu()
     await call.message.edit_text("🛡 <b>Безопасность</b>\n\nВыберите действие:", reply_markup=kb)
 
 
@@ -53,7 +53,7 @@ async def show_suspicious_activities(call: CallbackQuery, session: AsyncSession)
         "• Проверяйте подлинность новых пользователей"
     )
     
-    kb = security_keyboard()
+    kb = AdminKeyboardFactory.create_security_menu()
     await call.message.edit_text(suspicious_info, reply_markup=kb)
 
 
@@ -76,7 +76,7 @@ async def show_ip_blocking_options(call: CallbackQuery):
         "• Создать интерфейс управления списком IP"
     )
     
-    kb = security_keyboard()
+    kb = AdminKeyboardFactory.create_security_menu()
     await call.message.edit_text(ip_info, reply_markup=kb)
 
 
@@ -100,5 +100,5 @@ async def show_security_logs(call: CallbackQuery, session: AsyncSession):
         "• Создать интерфейс для просмотра и фильтрации логов"
     )
     
-    kb = security_keyboard()
+    kb = AdminKeyboardFactory.create_security_menu()
     await call.message.edit_text(logs_info, reply_markup=kb)

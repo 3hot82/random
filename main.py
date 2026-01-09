@@ -14,11 +14,11 @@ from core.logic.game_actions import update_active_giveaways_task
 from middlewares.db_session import DbSessionMiddleware
 from middlewares.admin_hmac import AdminSecurityMiddleware
 from middlewares.throttling import ThrottlingMiddleware
+from middlewares.error_handler import ErrorMiddleware
 
 # Импорты Роутеров
 from handlers.common import start
 from handlers.participant import join
-from handlers.super_admin import menu_main, list_view, manage_item, rig_winner, broadcast
 # Админ панель
 from handlers.super_admin import admin_base, stats_handler, users_handler, giveaways_handler, broadcast_handler, security_handler, settings_handler, logs_handler
 # Юзер Панель
@@ -49,27 +49,23 @@ async def main():
     dp = Dispatcher(storage=RedisStorage(redis=redis))
 
     # --- Middleware ---
-    # 1. Сессия БД для каждого апдейта
+    # 1. Обработчик ошибок (первым в цепочке)
+    dp.update.middleware(ErrorMiddleware())
+    
+    # 2. Сессия БД для каждого апдейта
     dp.update.middleware(DbSessionMiddleware())
     
-    # 2. Проверка подписи админа (безопасность кнопок)
+    # 3. Проверка подписи админа (безопасность кнопок)
     dp.callback_query.middleware(AdminSecurityMiddleware())
     
-    # 3. Анти-спам (Throttling) - защита от частых кликов
+    # 4. Анти-спам (Throttling) - защита от частых кликов
     # Подключаем и к сообщениям, и к колбэкам
     dp.message.middleware(ThrottlingMiddleware(redis, rate_limit=1.0))
     dp.callback_query.middleware(ThrottlingMiddleware(redis, rate_limit=1.0))
 
     # --- Подключение Роутеров ---
     
-    # 1. Админка (старая система)
-    dp.include_routers(
-        menu_main.router,
-        rig_winner.router,
-        broadcast.router # Добавили роутер рассылки
-    )
-    
-    # 2. Админ панель (новая система с деревом кнопок)
+    # 1. Админ панель (новая система с деревом кнопок)
     from handlers.super_admin import (
         admin_base_router,
         stats_router,
@@ -85,7 +81,7 @@ async def main():
         admin_base_router,
         stats_router,
         users_router,
-        giveaways_router,
+        giveaways_router,  # Розыгрыши теперь подключены через giveaways_handler
         broadcast_router,
         security_router,
         settings_router,
@@ -93,15 +89,12 @@ async def main():
     )
 
     # 2. Пользовательская панель (Дашборд, Каналы, Мои Розыгрыши, Премиум, Участия)
-    dp.include_router(dashboard.router)
-    dp.include_router(my_channels.router)
-    dp.include_router(my_giveaways.router)
-    dp.include_router(premium.router)
-    dp.include_router(my_participations.router)
+    from handlers.user import router as user_router
+    dp.include_router(user_router)
     
     # 3. Конструктор
-    dp.include_router(time_picker.router)
-    dp.include_router(constructor.router)
+    from handlers.creator import router as creator_router
+    dp.include_router(creator_router)
 
     # 4. Участие и Старт (важен порядок, start ловит диплинки)
     dp.include_router(join.router)

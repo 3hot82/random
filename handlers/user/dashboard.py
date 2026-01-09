@@ -1,6 +1,7 @@
-from aiogram import Router, types, Bot, F
+from aiogram import Router, Bot, F
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.exceptions import TelegramBadRequest # Импортируем исключение
 
@@ -12,9 +13,9 @@ router = Router()
 
 @router.message(CommandStart())
 async def smart_dashboard(
-    message: types.Message, 
-    command: CommandObject, 
-    session: AsyncSession, 
+    message: Message,
+    command: CommandObject,
+    session: AsyncSession,
     bot: Bot,
     state: FSMContext
 ):
@@ -35,10 +36,10 @@ async def smart_dashboard(
     await message.answer(text, reply_markup=start_menu_kb())
 
 @router.callback_query(F.data == "dashboard_home")
-async def back_home(call: types.CallbackQuery):
+async def back_home(call: CallbackQuery):
     try:
         await call.message.edit_text(
-            "👋 <b>Главное меню</b>\nВыберите действие:", 
+            "👋 <b>Главное меню</b>\nВыберите действие:",
             reply_markup=start_menu_kb()
         )
     except TelegramBadRequest:
@@ -46,7 +47,7 @@ async def back_home(call: types.CallbackQuery):
         await call.answer()
 
 @router.callback_query(F.data == "cabinet_hub")
-async def open_cabinet(call: types.CallbackQuery, session: AsyncSession):
+async def open_cabinet(call: CallbackQuery, session: AsyncSession):
     text = (
         "👤 <b>Кабинет организатора</b>\n\n"
         f"🆔 ID: <code>{call.from_user.id}</code>\n"

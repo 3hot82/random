@@ -7,8 +7,8 @@ from sqlalchemy import func, select
 from filters.is_super_admin import IsSuperAdmin
 from database.models.user import User
 from database.models.giveaway import Giveaway
-from keyboards.callback_data import StatsAction, NavigationAction, UsersAction
-from keyboards.inline.admin_panel import stats_main_keyboard
+from keyboards.callback_data import StatsAction, UsersAction
+from keyboards.admin_keyboards import AdminKeyboardFactory
 
 router = Router()
 
@@ -32,19 +32,11 @@ async def admin_dashboard(message: Message, session: AsyncSession):
         f"Выберите действие:"
     )
 
-    # Создаем клавиатуру с основными действиями
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    kb = InlineKeyboardBuilder()
-    kb.button(text="📊 Статистика", callback_data=StatsAction(action="main").pack())
-    kb.button(text="👥 Пользователи", callback_data=UsersAction(action="main").pack())
-    kb.button(text="🎮 Розыгрыши", callback_data="admin_giveaways")
-    kb.button(text="📢 Рассылка", callback_data="admin_broadcast")
-    kb.button(text="🛡 Безопасность", callback_data="admin_security")
-    kb.button(text="⚙️ Настройки", callback_data="admin_settings")
-    kb.button(text="📋 Логи", callback_data="admin_logs")
-    kb.adjust(2, 2, 2, 1)
+    # Используем унифицированную клавиатуру
+    from keyboards.admin_keyboards import AdminKeyboardFactory
+    keyboard = AdminKeyboardFactory.create_main_menu(is_super_admin=True)
 
-    await message.answer(text, reply_markup=kb.as_markup())
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.callback_query(IsSuperAdmin(), F.data == "admin_menu")

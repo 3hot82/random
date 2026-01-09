@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import BigInteger, String, Boolean, DateTime, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
 class User(Base):
@@ -16,6 +16,9 @@ class User(Base):
     
     # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    
+    # Связь с розыгрышами (владелец)
+    giveaways: Mapped[list["Giveaway"]] = relationship("Giveaway", back_populates="owner", lazy="selectin")
 
     def __repr__(self):
         return f"<User {self.user_id}>"

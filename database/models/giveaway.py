@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import BigInteger, String, DateTime, Integer, Text, ForeignKey, Boolean
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
 class Giveaway(Base):
@@ -21,8 +21,12 @@ class Giveaway(Base):
     media_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
     media_type: Mapped[str | None] = mapped_column(String, nullable=True)
     
-    # winner_ids УДАЛЕНО. Теперь данные в таблице winners.
-
+    # Дополнительные настройки
     is_referral_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     is_captcha_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     is_paid: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Связи с другими моделями
+    owner: Mapped["User"] = relationship("User", back_populates="giveaways", lazy="selectin")
+    required_channels: Mapped[list["GiveawayRequiredChannel"]] = relationship("GiveawayRequiredChannel", back_populates="giveaway", lazy="selectin")
+    participants: Mapped[list["Participant"]] = relationship("Participant", back_populates="giveaway", lazy="selectin")

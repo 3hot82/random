@@ -1,20 +1,22 @@
+from typing import Union
 from aiogram import Router, types, Bot
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from database.requests.user_repo import register_user
 from database.models.winner import Winner
 # Импортируем главную функцию входа (она теперь называется try_join_giveaway)
-from handlers.participant.join import try_join_giveaway 
+from handlers.participant.join import try_join_giveaway
 from core.services.ref_service import resolve_ref_link
 
 router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(
-    message: types.Message,
+    message: Message,
     command: CommandObject,
     session: AsyncSession,
     bot: Bot,

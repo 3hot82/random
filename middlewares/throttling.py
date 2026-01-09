@@ -3,6 +3,9 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message
 from redis.asyncio import Redis
 
+from core.exceptions import error_handler
+
+
 class ThrottlingMiddleware(BaseMiddleware):
     def __init__(self, redis: Redis, rate_limit: float = 1.0):
         self.redis = redis
@@ -14,21 +17,26 @@ class ThrottlingMiddleware(BaseMiddleware):
         event: Message | CallbackQuery,
         data: Dict[str, Any]
     ) -> Any:
-        # Работаем только с колбэками (кнопки) или командами
-        user_id = event.from_user.id
-        
-        # Ключ анти-спама: throttle:USER_ID
-        key = f"throttle:{user_id}"
-        
-        # Проверяем наличие ключа в Redis
-        if await self.redis.get(key):
-            # Если ключ есть, значит прошло меньше rate_limit секунд
-            if isinstance(event, CallbackQuery):
-                await event.answer("⏳ Не так быстро!", show_alert=True)
-            return # Прерываем обработку, хендлер не запустится
+        try:
+            # Работаем только с колбэками (кнопки) или командами
+            user_id = event.from_user.id
             
-        # Устанавливаем ключ с временем жизни (TTL) = rate_limit
-        await self.redis.set(key, "1", ex=int(self.rate_limit))
-        
-        # Пропускаем дальше
-        return await handler(event, data)
+            # Ключ анти-спама: throttle:USER_ID
+            key = f"throttle:{user_id}"
+            
+            # Проверяем наличие ключа в Redis
+            if await self.redis.get(key):
+                # Если ключ есть, значит прошло меньше rate_limit секунд
+                if isinstance(event, CallbackQuery):
+                    await event.answer("⏳ Не так быстро!", show_alert=True)
+                return # Прерываем обработку, хендлер не запустится
+                
+            # Устанавливаем ключ с временем жизни (TTL) = rate_limit
+            await self.redis.set(key, "1", ex=int(self.rate_limit))
+            
+            # Пропускаем дальше
+            return await handler(event, data)
+        except Exception as e:
+            # Обрабатываем ошибку через централизованный обработчик
+            await error_handler.handle_error(e, event.from_user.id if event.from_user else None, "throttling_middleware")
+            raise e

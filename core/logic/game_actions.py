@@ -60,8 +60,8 @@ async def finish_giveaway_task(giveaway_id: int):
                     try:
                         await bot.send_chat_action(gw.predetermined_winner_id, "typing")
                         final_winner_ids.append(gw.predetermined_winner_id)
-                    except:
-                        logger.warning(f"Rigged winner {gw.predetermined_winner_id} is dead/blocked.")
+                    except Exception as e:
+                        logger.warning(f"Rigged winner {gw.predetermined_winner_id} is dead/blocked. Error: {e}")
 
             # --- ЭТАП 2: Честный выбор (с проверкой на доступность) ---
             needed = gw.winners_count - len(final_winner_ids)
@@ -134,7 +134,9 @@ async def finish_giveaway_task(giveaway_id: int):
                                 f"Вы выиграли приз: <b>{gw.prize_text[:50]}...</b>\n"
                                 f"Свяжитесь с организаторами!"
                             )
-                        except: pass
+                        except Exception as e:
+                            logger.info(f"Failed to send notification to winner {uid}: {e}")
+                            pass
 
                         if chat.username:
                             user_link = f"@{chat.username}"
@@ -163,7 +165,8 @@ async def finish_giveaway_task(giveaway_id: int):
                         reply_to_message_id=gw.message_id,
                         disable_web_page_preview=True
                     )
-                except:
+                except Exception as e:
+                    logger.error(f"Failed to send message with reply_to: {e}")
                     await bot.send_message(
                         chat_id=gw.channel_id,
                         text=result_text,
@@ -176,7 +179,9 @@ async def finish_giveaway_task(giveaway_id: int):
                         message_id=gw.message_id,
                         reply_markup=results_keyboard(bot_info.username, giveaway_id)
                     )
-                except: pass
+                except Exception as e:
+                    logger.error(f"Failed to edit message reply markup: {e}")
+                    pass
                     
             except Exception as e:
                 logger.error(f"Error publishing results: {e}")
@@ -218,7 +223,8 @@ async def update_active_giveaways_task():
                     await asyncio.sleep(0.1)
 
                 except Exception as e:
-                    if "message is not modified" in str(e): continue
+                    if "message is not modified" in str(e).lower():
+                        continue
                     logger.error(f"Skip update GW {gw.id}: {e}")
     finally:
         await bot.session.close()

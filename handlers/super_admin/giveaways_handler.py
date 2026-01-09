@@ -8,22 +8,20 @@ from filters.is_admin import IsAdmin
 from database.models.giveaway import Giveaway
 from database.models.participant import Participant
 
-from .giveaways.list_view import router as list_view_router
-from .giveaways.manage_item import router as manage_item_router
+from .giveaways import router as giveaways_sub_router
 
 # Основной роутер для розыгрышей
 router = Router()
 
 # Включение подроутеров
-router.include_router(list_view_router)
-router.include_router(manage_item_router)
+router.include_router(giveaways_sub_router)
 
 # Обработчик для кнопки "Розыгрыши" в главном меню администратора
 @router.callback_query(IsAdmin(), F.data == "admin_giveaways")
 async def show_giveaways_main_menu(call: CallbackQuery, session: AsyncSession):
     """Отображение главного меню раздела розыгрышей"""
-    from keyboards.inline.admin_panel import giveaways_main_keyboard
-    kb = giveaways_main_keyboard()
+    from keyboards.admin_keyboards import AdminKeyboardFactory
+    kb = AdminKeyboardFactory.create_giveaways_menu(is_super_admin=True)
     await call.message.edit_text("🎮 <b>Управление розыгрышами</b>\n\nВыберите действие:", reply_markup=kb)
 
 __all__ = ["router"]

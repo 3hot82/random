@@ -3,7 +3,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database.models.channel import Channel
 
 def constructor_main_kb(
-    time_str: str, winners: int, 
+    time_str: str, winners: int,
     ref_req: int, # Если 0 - выкл, иначе кол-во друзей
     is_captcha: bool, has_main_channel: bool, sponsors_count: int
 ) -> InlineKeyboardMarkup:

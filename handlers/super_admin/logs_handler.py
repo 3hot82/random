@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from filters.is_admin import IsAdmin
 from database.models.user import User
-from keyboards.inline.admin_panel import logs_keyboard
+from keyboards.admin_keyboards import AdminKeyboardFactory
 
 
 router = Router()
@@ -14,7 +14,7 @@ router = Router()
 
 @router.callback_query(IsAdmin(), F.data == "admin_logs")
 async def show_logs_menu(call: CallbackQuery):
-    kb = logs_keyboard()
+    kb = AdminKeyboardFactory.create_logs_menu()
     await call.message.edit_text("📋 <b>Логи</b>\n\nВыберите тип логов:", reply_markup=kb)
 
 
@@ -48,7 +48,7 @@ async def show_user_logs(call: CallbackQuery, session: AsyncSession):
         "• Создать интерфейс для просмотра и экспорта логов"
     )
     
-    kb = logs_keyboard()
+    kb = AdminKeyboardFactory.create_logs_menu()
     await call.message.edit_text(user_logs_info, reply_markup=kb)
 
 
@@ -72,7 +72,7 @@ async def show_error_logs(call: CallbackQuery):
         "• Создать интерфейс для анализа и фильтрации ошибок"
     )
     
-    kb = logs_keyboard()
+    kb = AdminKeyboardFactory.create_logs_menu()
     await call.message.edit_text(error_logs_info, reply_markup=kb)
 
 
@@ -96,7 +96,7 @@ async def show_admin_logs(call: CallbackQuery):
         "• Создать интерфейс для просмотра и анализа действий администраторов"
     )
     
-    kb = logs_keyboard()
+    kb = AdminKeyboardFactory.create_logs_menu()
     await call.message.edit_text(admin_logs_info, reply_markup=kb)
 
 
@@ -119,5 +119,5 @@ async def export_logs_prompt(call: CallbackQuery):
         "• Обеспечить безопасность экспортируемых данных"
     )
     
-    kb = logs_keyboard()
+    kb = AdminKeyboardFactory.create_logs_menu()
     await call.message.edit_text(export_info, reply_markup=kb)

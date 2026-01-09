@@ -1,7 +1,8 @@
-from aiogram import Router, Bot, types, F
+from typing import Union
+from aiogram import Router, Bot, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -9,9 +10,9 @@ from database.models.participant import Participant
 from database.models.giveaway import Giveaway
 from database.requests.giveaway_repo import get_giveaway_by_id, get_required_channels
 from database.requests.participant_repo import (
-    add_participant, 
-    increment_ticket, 
-    is_circular_referral, 
+    add_participant,
+    increment_ticket,
+    is_circular_referral,
     is_participant_active,
     add_pending_referral, # <---
     get_pending_referral  # <---
@@ -28,18 +29,18 @@ class JoinState(StatesGroup):
     subscribing = State()
 
 @router.callback_query(F.data == "broken_link_alert")
-async def broken_link_handler(call: types.CallbackQuery):
+async def broken_link_handler(call: CallbackQuery):
     await call.answer("⚠️ Ссылка на канал отсутствует. Попробуйте найти его по названию или сообщите администратору.", show_alert=True)
 
 async def try_join_giveaway(
-    message_or_call: types.Message | types.CallbackQuery, 
-    gw_id: int, 
-    session: AsyncSession, 
-    bot: Bot, 
+    message_or_call: Message | CallbackQuery,
+    gw_id: int,
+    session: AsyncSession,
+    bot: Bot,
     state: FSMContext,
     referrer_id: int = None
 ):
-    if isinstance(message_or_call, types.CallbackQuery):
+    if isinstance(message_or_call, CallbackQuery):
         message = message_or_call.message
         user = message_or_call.from_user
         await message_or_call.answer()
@@ -74,7 +75,7 @@ async def try_join_giveaway(
             text += f"\n\n🔗 Твоя реф. ссылка:\n<code>{ref_link}</code>"
         
         try: await message.answer(text, disable_web_page_preview=True)
-        except: pass
+        except Exception: pass
         return
 
     # Сохраняем реферала в БД (надежно)
@@ -94,7 +95,7 @@ async def try_join_giveaway(
     await check_subscriptions_step(message, user.id, gw, session, bot, state)
 
 @router.callback_query(JoinState.captcha, F.data == "captcha_solved")
-async def captcha_solved(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+async def captcha_solved(call: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
     data = await state.get_data()
     gw_id = data.get("gw_id")
     gw = await get_giveaway_by_id(session, gw_id)
@@ -106,7 +107,7 @@ async def captcha_solved(call: types.CallbackQuery, state: FSMContext, session: 
     await call.message.delete()
     await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state)
 
-async def check_subscriptions_step(message: types.Message, user_id: int, gw: Giveaway, session: AsyncSession, bot: Bot, state: FSMContext, force_check: bool = False):
+async def check_subscriptions_step(message: Message, user_id: int, gw: Giveaway, session: AsyncSession, bot: Bot, state: FSMContext, force_check: bool = False):
     reqs = await get_required_channels(session, gw.id)
     
     channels_status = []
@@ -116,19 +117,26 @@ async def check_subscriptions_step(message: types.Message, user_id: int, gw: Giv
     try:
         is_sub = await is_user_subscribed(bot, gw.channel_id, user_id, force_check=force_check)
         
-        chat = await bot.get_chat(gw.channel_id)
-        # Безопасное получение ссылки
-        link = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else None)
+        from core.services.channel_service import ChannelService
+        chat_info = await ChannelService.get_chat_info_safe(bot, gw.channel_id)
         
-        channels_status.append({
-            'title': f"📢 {chat.title}", 
-            'link': link,
-            'is_subscribed': is_sub
-        })
-        if not is_sub: all_subscribed = False
+        if chat_info:
+            # Безопасное получение ссылки
+            link = chat_info['invite_link'] or (f"https://t.me/{chat_info['username']}" if chat_info['username'] else None)
             
-    except Exception:
-        pass 
+            channels_status.append({
+                'title': f"📢 {chat_info['title']}",
+                'link': link,
+                'is_subscribed': is_sub
+            })
+            if not is_sub: all_subscribed = False
+            
+    except Exception as e:
+        # Логируем ошибку получения информации о чате
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error getting chat info for channel {gw.channel_id}: {e}")
+        pass
 
     # 2. Спонсоры
     for r in reqs:
@@ -150,33 +158,53 @@ async def check_subscriptions_step(message: types.Message, user_id: int, gw: Giv
         
         kb = check_subscription_kb(gw.id, channels_status)
         
+        from core.services.message_service import MessageHandler
         try:
-            await message.edit_text(text, reply_markup=kb)
-        except:
+            result = await MessageHandler.safe_edit_text(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+                text=text,
+                reply_markup=kb
+            )
+            if not result:
+                await message.answer(text, reply_markup=kb)
+        except Exception as e:
+            # Логируем ошибку редактирования сообщения
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error editing message: {e}")
             await message.answer(text, reply_markup=kb)
     else:
-        try: await message.delete()
-        except: pass
+        from core.services.message_service import MessageHandler
+        try:
+            await MessageHandler.safe_delete_message(message.bot, message.chat.id, message.message_id)
+        except Exception as e:
+            # Логируем ошибку удаления сообщения
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error deleting message: {e}")
+            pass
         
         await finalize_registration(message, user_id, gw, session, bot, state)
 
 @router.callback_query(F.data.startswith("check_sub:"))
-async def on_check_subscription_btn(call: types.CallbackQuery, session: AsyncSession, bot: Bot, state: FSMContext):
+async def on_check_subscription_btn(call: CallbackQuery, session: AsyncSession, bot: Bot, state: FSMContext):
     gw_id = int(call.data.split(":")[-1])
     gw = await get_giveaway_by_id(session, gw_id)
     
     if not gw or gw.status != 'active':
         return await call.message.edit_text("❌ Розыгрыш завершен.")
-
+    
     await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state, force_check=True)
     await call.answer()
 
 async def finalize_registration(
-    message: types.Message, 
-    user_id: int, 
-    gw: Giveaway, 
-    session: AsyncSession, 
-    bot: Bot, 
+    message: Message,
+    user_id: int,
+    gw: Giveaway,
+    session: AsyncSession,
+    bot: Bot,
     state: FSMContext
 ):
     # Достаем реферера из БД (надежно)
@@ -205,7 +233,12 @@ async def finalize_registration(
             await increment_ticket(session, final_referrer, gw.id)
             try:
                 await bot.send_message(final_referrer, f"👤 По вашей ссылке в розыгрыше #{gw.id} новый участник! (+1 билет)")
-            except: pass
+            except Exception as e:
+                # Логируем ошибку отправки сообщения рефереру
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error sending message to referrer {final_referrer}: {e}")
+                pass
 
     text = (
         f"🎉 <b>ПОЗДРАВЛЯЕМ, ВЫ В ИГРЕ!</b>\n\n"
@@ -222,9 +255,22 @@ async def finalize_registration(
             f"<code>{ref_link}</code>"
         )
     
+    from core.services.message_service import MessageHandler
     try:
-        await message.edit_text(text, disable_web_page_preview=True)
-    except:
+        result = await MessageHandler.safe_edit_text(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            text=text,
+            disable_web_page_preview=True
+        )
+        if not result:
+            await message.answer(text, disable_web_page_preview=True)
+    except Exception as e:
+        # Логируем ошибку редактирования сообщения
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error editing final registration message: {e}")
         await message.answer(text, disable_web_page_preview=True)
         
     await state.clear()

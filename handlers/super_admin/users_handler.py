@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 
 from filters.is_super_admin import IsSuperAdmin
 from database.models.user import User
-from keyboards.inline.admin_panel import users_keyboard, user_detail_keyboard
-from keyboards.callback_data import UsersAction, NavigationAction
+from keyboards.admin_keyboards import AdminKeyboardFactory
+from keyboards.callback_data import UsersAction
 
 router = Router()
 
@@ -19,23 +19,23 @@ class AdminUserState(StatesGroup):
     waiting_for_username = State()
 
 
-from keyboards.callback_data import NavigationAction
+# Удаляем импорт NavigationAction
 
 @router.callback_query(IsSuperAdmin(), F.data == "admin_users")
 async def show_users_menu_legacy(call: CallbackQuery):
     """Обработчик для старого формата кнопки 'Пользователи'"""
-    kb = users_keyboard()
+    kb = AdminKeyboardFactory.create_users_menu(is_super_admin=True)
     await call.message.edit_text("👥 <b>Управление пользователями</b>\n\nВыберите действие:", reply_markup=kb)
 
 
 @router.callback_query(IsSuperAdmin(), UsersAction.filter(F.action == "main"))
 async def show_users_menu(call: CallbackQuery):
-    kb = users_keyboard()
+    kb = AdminKeyboardFactory.create_users_menu(is_super_admin=True)
     await call.message.edit_text("👥 <b>Управление пользователями</b>\n\nВыберите действие:", reply_markup=kb)
 
 
 # Обработка навигации "Назад" для раздела пользователей
-@router.callback_query(IsSuperAdmin(), NavigationAction.filter(F.action == "back"))
+@router.callback_query(IsSuperAdmin(), F.data == "admin_menu")
 async def users_navigate_back(call: CallbackQuery, session: AsyncSession):
     """Возврат в главное меню из раздела пользователей"""
     from handlers.super_admin.admin_base import admin_menu_callback
@@ -86,8 +86,8 @@ async def process_user_id(message: Message, state: FSMContext, session: AsyncSes
     )
     
     # Кнопки для управления пользователем
-    kb = user_detail_keyboard(user.user_id)
-    
+    kb = AdminKeyboardFactory.create_user_detail_menu(user.user_id, is_super_admin=True)
+
     await message.answer(user_info, reply_markup=kb)
     await state.clear()
 
@@ -106,7 +106,7 @@ async def grant_premium(call: CallbackQuery, callback_data: UsersAction, session
     
     await call.message.edit_text(f"✅ Премиум-статус выдан пользователю {user.full_name} (ID: {user.user_id})")
     # Обновляем клавиатуру с информацией о пользователе
-    kb = user_detail_keyboard(user_id)
+    kb = AdminKeyboardFactory.create_user_detail_menu(user_id, is_super_admin=True)
     await call.message.edit_reply_markup(reply_markup=kb)
 
 
@@ -124,7 +124,7 @@ async def revoke_premium(call: CallbackQuery, callback_data: UsersAction, sessio
     
     await call.message.edit_text(f"❌ Премиум-статус снят с пользователя {user.full_name} (ID: {user.user_id})")
     # Обновляем клавиатуру с информацией о пользователе
-    kb = user_detail_keyboard(user_id)
+    kb = AdminKeyboardFactory.create_user_detail_menu(user_id, is_super_admin=True)
     await call.message.edit_reply_markup(reply_markup=kb)
 
 
@@ -144,7 +144,7 @@ async def block_user(call: CallbackQuery, callback_data: UsersAction, session: A
     await call.message.edit_text(f"🔒 Пользователь {user.full_name} (ID: {user.user_id}) заблокирован")
     # Здесь должна быть реализация блокировки пользователя
     # Обновляем клавиатуру с информацией о пользователе
-    kb = user_detail_keyboard(user_id)
+    kb = AdminKeyboardFactory.create_user_detail_menu(user_id, is_super_admin=True)
     await call.message.edit_reply_markup(reply_markup=kb)
 
 
@@ -184,9 +184,8 @@ async def show_users_list(call: CallbackQuery, callback_data: UsersAction, sessi
     users_list += f"\nСтраница {page} из {total_pages} (Всего: {total_users})"
     
     # Кнопки навигации
-    from keyboards.inline.admin_panel import pagination_keyboard
-    kb = pagination_keyboard(page, total_pages, "users_list")
-    
+    kb = AdminKeyboardFactory.create_back_button("users")
+
     await call.message.edit_text(users_list, reply_markup=kb)
 
 
@@ -234,9 +233,8 @@ async def show_premium_users_list(call: CallbackQuery, callback_data: UsersActio
     users_list += f"\nСтраница {page} из {total_pages} (Всего: {total_users})"
     
     # Кнопки навигации
-    from keyboards.inline.admin_panel import pagination_keyboard
-    kb = pagination_keyboard(page, total_pages, "premium_users_list")
-    
+    kb = AdminKeyboardFactory.create_back_button("users")
+
     await call.message.edit_text(users_list, reply_markup=kb)
 
 
@@ -288,6 +286,6 @@ async def show_user_stats(call: CallbackQuery, callback_data: UsersAction, sessi
     )
     
     # Кнопки навигации
-    kb = user_detail_keyboard(user_id)
-    
+    kb = AdminKeyboardFactory.create_user_detail_menu(user_id, is_super_admin=True)
+
     await call.message.edit_text(user_stats, reply_markup=kb)

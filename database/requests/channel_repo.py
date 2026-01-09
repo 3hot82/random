@@ -40,7 +40,7 @@ async def add_channel(
             invite_link=invite_link
         ))
     
-    await session.commit()
+    # commit будет выполнен в middleware
 
 async def get_user_channels(session: AsyncSession, user_id: int):
     stmt = select(Channel).where(Channel.user_id == user_id)
@@ -50,4 +50,4 @@ async def get_user_channels(session: AsyncSession, user_id: int):
 async def delete_channel_by_id(session: AsyncSession, db_id: int, user_id: int):
     stmt = delete(Channel).where(Channel.id == db_id, Channel.user_id == user_id)
     await session.execute(stmt)
-    await session.commit()
+    # commit будет выполнен в middleware

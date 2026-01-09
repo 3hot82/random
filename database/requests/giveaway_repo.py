@@ -32,17 +32,19 @@ async def create_giveaway(
             )
             session.add(req_ch)
 
-    await session.commit()
+    # commit будет выполнен в middleware
     return new_gw.id
 
 async def get_giveaway_by_id(session: AsyncSession, gw_id: int) -> Giveaway | None:
     from sqlalchemy import select
-    stmt = select(Giveaway).where(Giveaway.id == gw_id)
+    from sqlalchemy.orm import selectinload
+    stmt = select(Giveaway).where(Giveaway.id == gw_id).options(selectinload(Giveaway.required_channels))
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
 async def get_active_giveaways(session: AsyncSession):
-    stmt = select(Giveaway).where(Giveaway.status == "active")
+    from sqlalchemy.orm import selectinload
+    stmt = select(Giveaway).where(Giveaway.status == "active").options(selectinload(Giveaway.required_channels))
     result = await session.execute(stmt)
     return result.scalars().all()
 
@@ -54,7 +56,9 @@ async def get_required_channels(session: AsyncSession, gw_id: int):
 # --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ---
 async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: int = 50, offset: int = 0):
     """Получает список розыгрышей создателя с пагинацией"""
+    from sqlalchemy.orm import selectinload
     stmt = select(Giveaway).where(Giveaway.owner_id == owner_id)\
+        .options(selectinload(Giveaway.required_channels))\
         .order_by(desc(Giveaway.id))\
         .limit(limit)\
         .offset(offset)  # <--- Добавлено смещение
@@ -64,7 +68,7 @@ async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: in
 async def set_predetermined_winner(session: AsyncSession, gw_id: int, winner_id: int):
     stmt = update(Giveaway).where(Giveaway.id == gw_id).values(predetermined_winner_id=winner_id)
     await session.execute(stmt)
-    await session.commit()
+    # commit будет выполнен в middleware
 
 async def count_giveaways_by_owner(session: AsyncSession, owner_id: int) -> int:
     stmt = select(func.count(Giveaway.id)).where(Giveaway.owner_id == owner_id)

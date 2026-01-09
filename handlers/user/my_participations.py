@@ -23,7 +23,9 @@ async def show_hub(call: types.CallbackQuery, session: AsyncSession):
     finished_count = await count_user_participations(session, user_id, "finished")
     
     # Удаляем старое сообщение (особенно если там была картинка)
-    try: await call.message.delete()
+    from core.services.message_service import MessageHandler
+    try:
+        await MessageHandler.safe_delete_message(bot, call.message.chat.id, call.message.message_id)
     except: pass
 
     await call.message.answer(
@@ -63,7 +65,9 @@ async def show_participation_list(call: types.CallbackQuery, session: AsyncSessi
         result = await session.execute(stmt)
         won_ids = set(result.scalars().all())
     
-    try: await call.message.delete()
+    from core.services.message_service import MessageHandler
+    try:
+        await MessageHandler.safe_delete_message(bot, call.message.chat.id, call.message.message_id)
     except: pass
 
     await call.message.answer(
@@ -104,7 +108,9 @@ async def view_participation(call: types.CallbackQuery, session: AsyncSession, b
 
     user_id = call.from_user.id
     
-    try: await call.message.delete()
+    from core.services.message_service import MessageHandler
+    try:
+        await MessageHandler.safe_delete_message(bot, call.message.chat.id, call.message.message_id)
     except: pass
 
     # 1. Показываем контент (картинку/видео) копированием
@@ -133,14 +139,15 @@ async def view_participation(call: types.CallbackQuery, session: AsyncSession, b
             res_text = "❌ Вы не выиграли"
 
     # 3. Генерация ссылки (УНИФИЦИРОВАННАЯ ЛОГИКА)
+    from core.services.channel_service import ChannelService
     post_link = None
     try:
-        chat = await bot.get_chat(gw.channel_id)
+        chat_info = await ChannelService.get_chat_info_safe(bot, gw.channel_id)
         
-        if chat.username:
+        if chat_info and chat_info['username']:
             # Публичный канал: t.me/username/id
-            post_link = f"https://t.me/{chat.username}/{gw.message_id}"
-        else:
+            post_link = f"https://t.me/{chat_info['username']}/{gw.message_id}"
+        elif chat_info:
             # Приватный канал: t.me/c/clean_id/id
             # ID приватных каналов начинаются с -100, для ссылки это нужно убрать
             clean_id = str(gw.channel_id).replace("-100", "")
@@ -165,7 +172,9 @@ async def view_created(call: types.CallbackQuery, session: AsyncSession, bot: Bo
     gw = await get_giveaway_by_id(session, gw_id)
     if not gw: return await call.answer("Не найдено")
     
-    try: await call.message.delete()
+    from core.services.message_service import MessageHandler
+    try:
+        await MessageHandler.safe_delete_message(bot, call.message.chat.id, call.message.message_id)
     except: pass
 
     try:

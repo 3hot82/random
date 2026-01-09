@@ -1,5 +1,11 @@
-# handlers/creator/__init__.py - если файл существует, оставьте его пустым или:
+# handlers/creator/__init__.py
 from aiogram import Router
 
+from . import time_picker
+from . import constructor
+
 router = Router()
-# Никаких импортов!
+
+# Include sub-routers
+router.include_router(time_picker.router)
+router.include_router(constructor.router)
