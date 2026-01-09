@@ -126,13 +126,19 @@ async def finish_giveaway_task(giveaway_id: int):
                     try:
                         chat = await bot.get_chat(uid)
                         
+                        # Получаем информацию о владельце розыгрыша
+                        owner = await bot.get_chat(gw.owner_id)
+                        
                         # Уведомление в ЛС
                         try:
+                            owner_mention = f"@{owner.username}" if owner.username else f"<a href='tg://user?id={owner.id}'>{owner.full_name}</a>"
+                            
                             await bot.send_message(
-                                uid, 
+                                uid,
                                 f"🎉 <b>ПОЗДРАВЛЯЕМ!</b>\n\n"
                                 f"Вы выиграли приз: <b>{gw.prize_text[:50]}...</b>\n"
-                                f"Свяжитесь с организаторами!"
+                                f"Организатор розыгрыша: {owner_mention}\n"
+                                f"Свяжитесь с ним(ней) для получения приза!"
                             )
                         except Exception as e:
                             logger.info(f"Failed to send notification to winner {uid}: {e}")

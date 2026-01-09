@@ -6,7 +6,7 @@ from database.base import Base
 class Giveaway(Base):
     __tablename__ = "giveaways"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"))
     channel_id: Mapped[int] = mapped_column(BigInteger)
     message_id: Mapped[int] = mapped_column(BigInteger)
