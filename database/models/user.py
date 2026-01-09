@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, String, Boolean, DateTime
+from sqlalchemy import BigInteger, String, Boolean, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 from database.base import Base
 
@@ -13,6 +13,9 @@ class User(Base):
     # --- Monetization ---
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
     premium_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    
+    # --- Timestamps ---
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     def __repr__(self):
         return f"<User {self.user_id}>"

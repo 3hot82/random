@@ -3,6 +3,7 @@ from aiogram.filters import BaseFilter
 from aiogram.types import Message, CallbackQuery
 from config import config
 
+
 class IsAdmin(BaseFilter):
     async def __call__(self, obj: Message | CallbackQuery) -> bool:
         # Работает и для сообщений, и для колбэков

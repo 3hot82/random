@@ -25,14 +25,35 @@ async def start_rigging(call: types.CallbackQuery, callback_data: AdminAction, s
 
 @router.message(RigState.waiting_for_id)
 async def set_winner_id(message: types.Message, state: FSMContext, session: AsyncSession):
+    # Добавляем логирование для отладки
+    import logging
+    logger = logging.getLogger("debug_fsm")
+    logger.info(f"DEBUG FSM: User {message.from_user.id} sent message '{message.text}' in state RigState.waiting_for_id")
+    
+    # Проверяем, не является ли сообщение командой
+    if message.text and message.text.startswith('/'):
+        await state.clear()
+        logger.info(f"DEBUG FSM: User {message.from_user.id} sent command, state cleared")
+        return  # Просто игнорируем команду и очищаем состояние
+    
+    # Проверяем, является ли пользователь администратором
+    from filters.is_admin import IsAdmin
+    is_admin_filter = IsAdmin()
+    if not await is_admin_filter(message):
+        await state.clear()
+        await message.answer("❌ У вас нет прав для выполнения этой операции.")
+        logger.info(f"DEBUG FSM: User {message.from_user.id} is not admin, state cleared")
+        return
+        
     try:
         winner_id = int(message.text)
     except ValueError:
+        logger.info(f"DEBUG FSM: User {message.from_user.id} sent non-numeric input: {message.text}")
         return await message.answer("❌ Нужен числовой ID.")
-
+    
     data = await state.get_data()
     gw_id = data['gw_id']
-
+    
     # Устанавливаем "жучка" в БД
     await set_predetermined_winner(session, gw_id, winner_id)
     

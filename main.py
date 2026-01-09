@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.types import Message, CallbackQuery
 from redis.asyncio import Redis
 
 from config import config
@@ -18,11 +19,23 @@ from middlewares.throttling import ThrottlingMiddleware
 from handlers.common import start
 from handlers.participant import join
 from handlers.super_admin import menu_main, list_view, manage_item, rig_winner, broadcast
+# Админ панель
+from handlers.super_admin import admin_base, stats_handler, users_handler, giveaways_handler, broadcast_handler, security_handler, settings_handler, logs_handler
 # Юзер Панель
 from handlers.user import dashboard, my_channels, my_participations, my_giveaways, premium
 # Конструктор
-from handlers.creator import constructor 
+from handlers.creator import constructor
 from handlers.creator import time_picker
+
+logger = logging.getLogger("aiogram.event")
+
+class UserIdMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event: (Message | CallbackQuery), data):
+        # Логируем user_id ДО обработки
+        user_id = getattr(event.from_user, 'id', 'unknown')
+        logger.info("Update from user_id=%s (bot_id=%s)", user_id, data['bot'].id)
+        
+        return await handler(event, data)
 
 async def main():
     logging.basicConfig(level=logging.INFO)
@@ -49,13 +62,34 @@ async def main():
 
     # --- Подключение Роутеров ---
     
-    # 1. Админка
+    # 1. Админка (старая система)
     dp.include_routers(
-        menu_main.router, 
-        list_view.router, 
-        manage_item.router, 
+        menu_main.router,
         rig_winner.router,
         broadcast.router # Добавили роутер рассылки
+    )
+    
+    # 2. Админ панель (новая система с деревом кнопок)
+    from handlers.super_admin import (
+        admin_base_router,
+        stats_router,
+        users_router,
+        giveaways_router,
+        broadcast_router,
+        security_router,
+        settings_router,
+        logs_router
+    )
+    
+    dp.include_routers(
+        admin_base_router,
+        stats_router,
+        users_router,
+        giveaways_router,
+        broadcast_router,
+        security_router,
+        settings_router,
+        logs_router
     )
 
     # 2. Пользовательская панель (Дашборд, Каналы, Мои Розыгрыши, Премиум, Участия)
@@ -76,6 +110,10 @@ async def main():
     # Запуск планировщика (обновление счетчиков участников раз в 30 мин)
     scheduler.add_job(update_active_giveaways_task, "interval", minutes=30, id="global_updater", replace_existing=True)
     await start_scheduler()
+
+    # Регистрируем middleware для логирования ID пользователей
+    dp.message.middleware(UserIdMiddleware())
+    dp.callback_query.middleware(UserIdMiddleware())
 
     try:
         # ВАЖНО: Удаляем вебхук и сбрасываем старые апдейты перед запуском
