@@ -43,8 +43,7 @@ class TestGiveawayFinish:
                 user = User(
                     user_id=user_id,
                     username=username,
-                    first_name=f"Test{i}",
-                    last_name=f"User{i}",
+                    full_name=f"Test{i} User{i}",
                     is_premium=False
                 )
                 async_session.add(user)
@@ -77,7 +76,7 @@ class TestGiveawayFinish:
             winner = Winner(
                 user_id=winner_id,
                 giveaway_id=giveaway_id,
-                win_date=datetime.now()
+                created_at=datetime.now()
             )
             async_session.add(winner)
         
@@ -128,8 +127,7 @@ class TestGiveawayFinish:
                 user = User(
                     user_id=user_id,
                     username=username,
-                    first_name=f"Test{i}",
-                    last_name=f"User{i}",
+                    full_name=f"Test{i} User{i}",
                     is_premium=False
                 )
                 async_session.add(user)
@@ -196,8 +194,7 @@ class TestGiveawayFinish:
                 user = User(
                     user_id=user_id,
                     username=username,
-                    first_name=f"Test{i}",
-                    last_name=f"User{i}",
+                    full_name=f"Test{i} User{i}",
                     is_premium=False
                 )
                 async_session.add(user)

@@ -36,34 +36,8 @@ async def cmd_start(
         user_username = message.from_user.username
         logger.info(f"User info - ID: {user_id}, Full Name: {user_full_name}, Username: {user_username}")
         
-        # Проверяем, является ли пользователь суперадминистратором
-        from config import config
-        # Суперадминистратор - это первый администратор из списка
-        super_admin_id = config.ADMIN_IDS[0] if config.ADMIN_IDS else None
-        logger.info(f"Super admin ID from config: {super_admin_id}")
-        is_super_admin = user_id == super_admin_id
-        logger.info(f"Is super admin: {is_super_admin}")
-        
-        if is_super_admin:
-            # Отправляем приветственное сообщение с кнопкой админ-панели
-            from aiogram.utils.keyboard import ReplyKeyboardMarkup, KeyboardButton
-            
-            # Создаем клавиатуру с командой /admin для суперадминистратора
-            admin_kb = ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="/admin")]
-                ],
-                resize_keyboard=True,
-                one_time_keyboard=True
-            )
-            return await message.answer(
-                f"👑 Привет, {message.from_user.first_name}! 🎉\n\n"
-                f"Доступна панель управления ботом.",
-                reply_markup=admin_kb
-            )
-        else:
-            logger.info(f"Regular user, showing standard greeting")
-            return await message.answer(f"👋 Привет, {message.from_user.first_name}!")
+        logger.info(f"Regular user, showing standard greeting")
+        return await message.answer(f"👋 Привет, {message.from_user.first_name}!")
     else:
         # Добавляем логирование для диплинков
         user_id = message.from_user.id

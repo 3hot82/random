@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, String, Boolean, DateTime, func
+from sqlalchemy import BigInteger, String, Boolean, DateTime, func, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
@@ -22,3 +22,8 @@ class User(Base):
 
     def __repr__(self):
         return f"<User {self.user_id}>"
+
+# Индексы для оптимизации производительности
+Index('idx_users_username', User.username)
+Index('idx_users_premium', User.is_premium)
+Index('idx_users_created_at', User.created_at.desc())

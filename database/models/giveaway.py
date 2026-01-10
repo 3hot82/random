@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, String, DateTime, Integer, Text, ForeignKey, Boolean
+from sqlalchemy import BigInteger, String, DateTime, Integer, Text, ForeignKey, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
@@ -30,3 +30,8 @@ class Giveaway(Base):
     owner: Mapped["User"] = relationship("User", back_populates="giveaways", lazy="selectin")
     required_channels: Mapped[list["GiveawayRequiredChannel"]] = relationship("GiveawayRequiredChannel", back_populates="giveaway", lazy="selectin")
     participants: Mapped[list["Participant"]] = relationship("Participant", back_populates="giveaway", lazy="selectin")
+
+# Индексы для оптимизации производительности
+Index('idx_giveaways_status', Giveaway.status)
+Index('idx_giveaways_owner_id', Giveaway.owner_id)
+Index('idx_giveaways_created_at', Giveaway.finish_time.desc())
