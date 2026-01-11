@@ -2,6 +2,9 @@ from aiogram import F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton
+from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from handlers.admin.admin_router import admin_router
@@ -15,6 +18,7 @@ from keyboards.admin_users_keyboards import (
     get_cancel_search_keyboard
 )
 from services.admin_user_service import UserService
+from services.admin_giveaway_service import GiveawayService
 from utils.admin_logger import log_admin_action
 
 
@@ -26,6 +30,7 @@ class UserSearchState(StatesGroup):
 async def show_users_menu(callback: CallbackQuery):
     keyboard = get_users_menu_keyboard()
     await callback.message.edit_text("👥 Меню пользователей", reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data == "admin_search_user")
@@ -33,6 +38,7 @@ async def start_user_search(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserSearchState.waiting_for_search_query)
     keyboard = get_cancel_search_keyboard()
     await callback.message.edit_text("🔍 Введите ID, @username или имя пользователя:", reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.message(UserSearchState.waiting_for_search_query)
@@ -88,9 +94,10 @@ async def show_user_detail(callback: CallbackQuery, session: AsyncSession):
     
     keyboard = get_user_detail_menu_keyboard(user_id)
     await callback.message.edit_text(
-        format_user_info(user_info), 
+        format_user_info(user_info),
         reply_markup=keyboard
     )
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_list_users_"))
@@ -110,6 +117,7 @@ async def show_users_list(callback: CallbackQuery, session: AsyncSession):
     
     keyboard = get_users_pagination_keyboard(page, total_count)
     await callback.message.edit_text(message_text, reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_grant_premium_"))
@@ -120,6 +128,7 @@ async def confirm_grant_premium(callback: CallbackQuery):
         f"⚠️ Вы уверены, что хотите выдать премиум пользователю {user_id}?",
         reply_markup=keyboard
     )
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_revoke_premium_"))
@@ -130,6 +139,7 @@ async def confirm_revoke_premium(callback: CallbackQuery):
         f"⚠️ Вы уверены, что хотите забрать премиум у пользователя {user_id}?",
         reply_markup=keyboard
     )
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_confirm_premium_"))
@@ -156,7 +166,65 @@ async def process_premium_change(callback: CallbackQuery, session: AsyncSession)
         await callback.message.edit_text("❌ Ошибка при изменении статуса премиума")
     
     # После изменения статуса показываем обновленную информацию о пользователе
-    await show_user_detail(
-        type('MockCallback', (), {'data': f'admin_user_detail_{user_id}', 'message': callback.message})(),
-        session
+    service = UserService(session)
+    user_info = await service.get_user_detailed_info(user_id)
+    
+    if user_info:
+        keyboard = get_user_detail_menu_keyboard(user_id)
+        await callback.message.edit_text(
+            format_user_info(user_info),
+            reply_markup=keyboard
+        )
+    
+    await callback.answer()
+
+
+@admin_router.callback_query(F.data.startswith("admin_user_giveaways_"))
+async def show_user_giveaways(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    # Разбираем callback_data в формате "admin_user_giveaways_{user_id}_{page}"
+    parts = callback.data.split("_")
+    user_id = int(parts[3])  # admin_user_giveaways_user_id_page
+    page = int(parts[4]) if len(parts) > 4 else 1
+    
+    service = GiveawayService(session, bot)
+    giveaways, total_count = await service.get_user_giveaways_paginated(user_id, page)
+    
+    message_text = f"🎁 Розыгрыши пользователя {user_id}:\n\n"
+    for giveaway in giveaways:
+        message_text += f"#{giveaway.id} \"{giveaway.prize_text}\" - {giveaway.status}\n"
+    
+    # Убедимся, что total_count - это int
+    total_count = int(total_count) if total_count is not None else 0
+    total_pages = (total_count + 10 - 1) // 10  # 10 - размер страницы по умолчанию
+    
+    builder = InlineKeyboardBuilder()
+    # Навигация по страницам
+    if page > 1:
+        builder.button(
+            text="⏪ Назад",
+            callback_data=f"admin_user_giveaways_{user_id}_{page - 1}"
+        )
+    
+    builder.button(
+        text=f"{page}/{total_pages}",
+        callback_data="admin_ignore"  # Заглушка
     )
+    
+    if page < total_pages:
+        builder.button(
+            text="Вперед ⏩",
+            callback_data=f"admin_user_giveaways_{user_id}_{page + 1}"
+        )
+    
+    builder.adjust(3)  # Располагаем кнопки в одной строке
+    
+    # Кнопка "Назад к пользователю"
+    builder.row(
+        InlineKeyboardButton(
+            text="◀️ Назад к пользователю",
+            callback_data=f"admin_user_detail_{user_id}"
+        )
+    )
+    
+    await callback.message.edit_text(message_text, reply_markup=builder.as_markup())
+    await callback.answer()

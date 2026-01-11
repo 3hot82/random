@@ -39,6 +39,7 @@ def format_giveaway_info(giveaway_info: dict) -> str:
 async def show_giveaways_menu(callback: CallbackQuery):
     keyboard = get_giveaways_menu_keyboard()
     await callback.message.edit_text("🎁 Меню розыгрышей", reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data == "admin_search_giveaway")
@@ -49,13 +50,14 @@ async def start_giveaway_search(callback: CallbackQuery, state: FSMContext):
         "🔍 Введите слово из приза или ID владельца:",
         reply_markup=keyboard
     )
+    await callback.answer()
 
 
 @admin_router.message(GiveawaySearchState.waiting_for_search_query)
 async def process_giveaway_search(message: Message, state: FSMContext, session: AsyncSession):
     search_query = message.text.strip()
     
-    service = GiveawayService(session, None)  # bot будет установлен позже
+    service = GiveawayService(session, None)  # bot передается как None, но в search_giveaways он не используется
     giveaways = await service.search_giveaways(search_query)
     
     if not giveaways:
@@ -80,7 +82,7 @@ async def process_giveaway_search(message: Message, state: FSMContext, session: 
 async def show_giveaways_list(callback: CallbackQuery, session: AsyncSession):
     page = int(callback.data.split("_")[-1])
     
-    service = GiveawayService(session, None)  # bot будет установлен позже
+    service = GiveawayService(session, None)  # bot не требуется для пагинации
     giveaways, total_count = await service.get_giveaways_paginated(page=page)
     
     message_text = "Список розыгрышей:\n\n"
@@ -92,13 +94,14 @@ async def show_giveaways_list(callback: CallbackQuery, session: AsyncSession):
     
     keyboard = get_giveaways_pagination_keyboard(page, total_count)
     await callback.message.edit_text(message_text, reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_giveaway_detail_"))
 async def show_giveaway_detail(callback: CallbackQuery, session: AsyncSession):
     giveaway_id = int(callback.data.split("_")[-1])
     
-    service = GiveawayService(session, None)  # bot будет установлен позже
+    service = GiveawayService(session, None)  # bot не требуется для получения детальной информации
     giveaway_info = await service.get_giveaway_detailed_info(giveaway_id)
     
     if not giveaway_info:
@@ -107,9 +110,10 @@ async def show_giveaway_detail(callback: CallbackQuery, session: AsyncSession):
     
     keyboard = get_giveaway_detail_menu_keyboard(giveaway_id)
     await callback.message.edit_text(
-        format_giveaway_info(giveaway_info), 
+        format_giveaway_info(giveaway_info),
         reply_markup=keyboard
     )
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_force_finish_"))
@@ -121,6 +125,7 @@ async def confirm_force_finish_giveaway(callback: CallbackQuery):
         "Все участники будут уведомлены.",
         reply_markup=keyboard
     )
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_confirm_giveaway_"))
@@ -148,7 +153,14 @@ async def process_giveaway_action(callback: CallbackQuery, session: AsyncSession
         await callback.message.edit_text("❌ Ошибка при обработке розыгрыша")
     
     # Возвращаемся к информации о розыгрыше
-    await show_giveaway_detail(
-        type('MockCallback', (), {'data': f'admin_giveaway_detail_{giveaway_id}', 'message': callback.message})(),
-        session
-    )
+    service = GiveawayService(session, bot)
+    giveaway_info = await service.get_giveaway_detailed_info(giveaway_id)
+    
+    if giveaway_info:
+        keyboard = get_giveaway_detail_menu_keyboard(giveaway_id)
+        await callback.message.edit_text(
+            format_giveaway_info(giveaway_info),
+            reply_markup=keyboard
+        )
+    
+    await callback.answer()

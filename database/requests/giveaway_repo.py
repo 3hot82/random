@@ -48,12 +48,22 @@ async def get_active_giveaways(session: AsyncSession):
     result = await session.execute(stmt)
     return result.scalars().all()
 
+# --- НОВАЯ ФУНКЦИЯ ---
+async def get_expired_active_giveaways(session: AsyncSession):
+    """Возвращает активные розыгрыши, время которых истекло"""
+    stmt = select(Giveaway).where(
+        Giveaway.status == "active",
+        Giveaway.finish_time <= datetime.utcnow()
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+# ---------------------
+
 async def get_required_channels(session: AsyncSession, gw_id: int):
     stmt = select(GiveawayRequiredChannel).where(GiveawayRequiredChannel.giveaway_id == gw_id)
     result = await session.execute(stmt)
     return result.scalars().all()
 
-# --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ---
 async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: int = 50, offset: int = 0):
     """Получает список розыгрышей создателя с пагинацией"""
     from sqlalchemy.orm import selectinload
@@ -61,7 +71,7 @@ async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: in
         .options(selectinload(Giveaway.required_channels))\
         .order_by(desc(Giveaway.id))\
         .limit(limit)\
-        .offset(offset)  # <--- Добавлено смещение
+        .offset(offset)
     result = await session.execute(stmt)
     return result.scalars().all()
 

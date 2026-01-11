@@ -85,11 +85,16 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
             await bot.forward_message(chat_id=sp['id'], from_chat_id=main_ch['id'], message_id=msg.message_id)
         except: pass
 
-    # 5. Запуск планировщика
+    # 5. Запуск планировщика (С ГАРАНТИЕЙ ЗАПУСКА)
     try:
         scheduler.add_job(
-            finish_giveaway_task, "date", run_date=finish_dt_utc, 
-            kwargs={"giveaway_id": gw_id}, id=f"gw_{gw_id}", replace_existing=True
+            finish_giveaway_task, 
+            "date", 
+            run_date=finish_dt_utc, 
+            kwargs={"giveaway_id": gw_id}, 
+            id=f"gw_{gw_id}", 
+            replace_existing=True,
+            misfire_grace_time=None  # <--- ВАЖНО: Выполнить, даже если пропустили время
         )
     except Exception as e:
         logger.error(f"Scheduler error: {e}")
@@ -103,7 +108,7 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
     # Предупреждение о безопасности
     warning_text = (
         "\n\n⚠️ <b>Важно:</b> Если вы отредактируете пост в канале вручную (измените условия или приз), "
-        "бот об этом не узнает. Информация в базе данных останется старой. Если нужно изменить текст то делайте это в личном кабинете"
+        "бот об этом не узнает. Информация в базе данных останется старой."
     )
 
     await call.message.answer(

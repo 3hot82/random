@@ -22,18 +22,22 @@ async def admin_panel(message: Message):
     await message.answer("🔒 Админ-панель", reply_markup=keyboard)
 
 
-# Глобальный обработчик для проверки рейт-лимита
-@admin_router.callback_query()
-async def admin_callback_handler(callback: CallbackQuery, session: AsyncSession):
-    # Проверяем рейт-лимит
-    if not admin_rate_limiter.is_allowed(callback.from_user.id):
-        reset_time = admin_rate_limiter.get_reset_time(callback.from_user.id)
-        await callback.answer(f"❌ Слишком много запросов. Попробуйте через {int(reset_time)} сек.", show_alert=True)
-        return
-    
-    # Продолжаем обработку остальных callback'ов
-    # (они будут обработаны соответствующими обработчиками)
-    pass
+@admin_router.callback_query(lambda c: c.data == "admin_main_menu")
+async def back_to_main_menu(callback: CallbackQuery):
+    keyboard = get_main_admin_menu_keyboard()
+    await callback.message.edit_text("🔒 Админ-панель", reply_markup=keyboard)
+    await callback.answer()
+
+
+@admin_router.callback_query(lambda c: c.data == "admin_ignore")
+async def ignore_callback(callback: CallbackQuery):
+    # Заглушка для callback'ов, которые не требуют действия
+    await callback.answer()
+
+
+# Подключаем middleware для проверки рейт-лимита администратора
+from middlewares.admin_middleware import AdminRateLimitMiddleware
+admin_router.callback_query.middleware(AdminRateLimitMiddleware())
 
 
 # Обработчик ошибок для всего роутера

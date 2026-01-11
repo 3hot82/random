@@ -17,6 +17,7 @@ from utils.admin_logger import log_admin_action
 async def show_stats_menu(callback: CallbackQuery):
     keyboard = get_stats_menu_keyboard()
     await callback.message.edit_text("📊 Меню статистики", reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data == "admin_general_stats")
@@ -34,6 +35,7 @@ async def show_general_stats(callback: CallbackQuery, session: AsyncSession):
     
     keyboard = get_back_to_stats_menu_keyboard()
     await callback.message.edit_text(message_text, reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data == "admin_user_growth")
@@ -50,6 +52,7 @@ async def show_user_growth_stats(callback: CallbackQuery, session: AsyncSession)
     
     keyboard = get_back_to_stats_menu_keyboard()
     await callback.message.edit_text(message_text, reply_markup=keyboard)
+    await callback.answer()
 
 
 # Обработчики для временных фильтров
@@ -72,6 +75,7 @@ async def show_general_stats_filtered(callback: CallbackQuery, session: AsyncSes
     
     keyboard = get_back_to_stats_menu_keyboard()
     await callback.message.edit_text(message_text, reply_markup=keyboard)
+    await callback.answer()
 
 
 # Заглушка для остальных видов статистики
@@ -85,6 +89,7 @@ async def show_premium_stats(callback: CallbackQuery, session: AsyncSession):
     
     keyboard = get_back_to_stats_menu_keyboard()
     await callback.message.edit_text(message_text, reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data == "admin_giveaway_stats")
@@ -97,6 +102,7 @@ async def show_giveaway_stats(callback: CallbackQuery, session: AsyncSession):
     
     keyboard = get_back_to_stats_menu_keyboard()
     await callback.message.edit_text(message_text, reply_markup=keyboard)
+    await callback.answer()
 
 
 @admin_router.callback_query(F.data == "admin_participation_stats")
@@ -109,16 +115,20 @@ async def show_participation_stats(callback: CallbackQuery, session: AsyncSessio
     
     keyboard = get_back_to_stats_menu_keyboard()
     await callback.message.edit_text(message_text, reply_markup=keyboard)
+    await callback.answer()
 
 
-# Добавим логирование действий администратора
-@admin_router.callback_query(F.data.startswith("admin_"))
+# ИСПРАВЛЕНИЕ: Добавлен фильтр .contains("stats"), чтобы не перехватывать другие админские кнопки
+@admin_router.callback_query(F.data.startswith("admin_") & F.data.contains("stats"))
 async def log_admin_stats_actions(callback: CallbackQuery, session: AsyncSession):
     # Логируем действия только для статистики
-    if "stats" in callback.data:
-        await log_admin_action(
-            session=session,
-            admin_id=callback.from_user.id,
-            action=f"view_{callback.data.replace('admin_', '')}",
-            details={"message_id": callback.message_id}
-        )
+    await log_admin_action(
+        session=session,
+        admin_id=callback.from_user.id,
+        action=f"view_{callback.data.replace('admin_', '')}",
+        details={"message_id": callback.message_id}
+    )
+    # Важно: здесь нет callback.answer(), так как предполагается, что это действие 
+    # может быть "прозрачным" или обработано выше, но так как это последний хендлер 
+    # в цепочке статистики, то он сработает только если ничего выше не сработало, 
+    # но подошло по фильтру. В данном случае это безопасно.

@@ -3,10 +3,15 @@ import logging
 import secrets
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
-from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound
+from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound, TelegramRetryAfter
 from config import config
 from database import async_session_maker
-from database.requests.giveaway_repo import get_giveaway_by_id, get_active_giveaways, get_required_channels
+from database.requests.giveaway_repo import (
+    get_giveaway_by_id, 
+    get_active_giveaways, 
+    get_required_channels,
+    get_expired_active_giveaways
+)
 from database.requests.participant_repo import get_weighted_candidates, get_participants_count
 from database.models.winner import Winner
 from core.tools.formatters import format_giveaway_caption
@@ -46,6 +51,7 @@ async def finish_giveaway_task(giveaway_id: int):
 
         async with async_session_maker() as session:
             gw = await get_giveaway_by_id(session, giveaway_id)
+            # Проверка статуса (если вдруг он уже завершен другим процессом)
             if not gw or gw.status != 'active':
                 logger.warning(f"GW {giveaway_id} is not active or not found.")
                 return
@@ -91,7 +97,6 @@ async def finish_giveaway_task(giveaway_id: int):
                         # 2. ПРОВЕРКА НА "ЖИВОГО" ЮЗЕРА
                         try:
                             # Пытаемся отправить "тихое" действие или сообщение
-                            # Это самый надежный способ узнать, не заблочил ли он бота
                             await bot.send_chat_action(uid, "typing")
                             
                             # Если ок - добавляем
@@ -195,6 +200,25 @@ async def finish_giveaway_task(giveaway_id: int):
     finally:
         await bot.session.close()
 
+# --- Safety Net: Обработка просроченных ---
+async def process_expired_giveaways():
+    logging.info("🔎 Checking for expired giveaways...")
+    async with async_session_maker() as session:
+        expired = await get_expired_active_giveaways(session)
+        count = len(expired)
+        if count > 0:
+            logging.warning(f"⚠️ Found {count} expired active giveaways. Finishing them now...")
+            for gw in expired:
+                try:
+                    logging.info(f"🔄 Processing expired GW #{gw.id}")
+                    await finish_giveaway_task(gw.id)
+                    await asyncio.sleep(1.5) # Пауза между завершениями
+                except Exception as e:
+                    logging.error(f"❌ Error finishing expired GW {gw.id}: {e}")
+        else:
+            logging.info("✅ No expired giveaways found.")
+
+# --- Фоновая задача обновления ---
 async def update_active_giveaways_task():
     """Фоновая задача: обновляет счетчики."""
     bot = Bot(
@@ -226,11 +250,20 @@ async def update_active_giveaways_task():
                             chat_id=gw.channel_id, message_id=gw.message_id,
                             text=new_caption, reply_markup=kb, disable_web_page_preview=True
                         )
-                    await asyncio.sleep(0.1)
+                    
+                    # --- ИЗМЕНЕНИЕ: Увеличенная задержка для защиты от FloodWait ---
+                    # 1.5 секунды - безопасный интервал для массовых обновлений
+                    await asyncio.sleep(1.5) 
+                    # -------------------------------------------------------------
 
+                except TelegramRetryAfter as e:
+                    # Если все-таки словили флуд, ждем сколько просят
+                    logger.warning(f"FloodWait updating GW {gw.id}. Sleeping {e.retry_after}s")
+                    await asyncio.sleep(e.retry_after)
                 except Exception as e:
                     if "message is not modified" in str(e).lower():
                         continue
                     logger.error(f"Skip update GW {gw.id}: {e}")
+                    
     finally:
         await bot.session.close()

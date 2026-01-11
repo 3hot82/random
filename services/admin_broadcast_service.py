@@ -1,13 +1,14 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, update
+from sqlalchemy import select, update
 from database.models import Broadcast, ScheduledBroadcast, User
 from aiogram import Bot
-from aiogram.types import Message
-from typing import List, Dict, Optional
 import asyncio
 import logging
+import traceback
 
+# Добавляем импорт для создания сессии внутри функции восстановления
+from database import async_session_maker
 
 class BroadcastService:
     def __init__(self, bot: Bot, session: AsyncSession):
@@ -22,6 +23,7 @@ class BroadcastService:
         Создание новой рассылки
         """
         try:
+            # Создаем объект
             broadcast = Broadcast(
                 message_text=message_text or '',
                 photo_file_id=photo_file_id,
@@ -33,14 +35,18 @@ class BroadcastService:
             )
             
             self.session.add(broadcast)
-            await self.session.commit()
+            
+            # Используем flush() вместо commit()
+            await self.session.flush()
+            
+            # Теперь можно обновить объект
             await self.session.refresh(broadcast)
             
             return broadcast
-        except Exception:
-            # Обработка любых ошибок (например, связанных с базой данных)
-            await self.session.rollback()
-            return None  # Вместо выбрасывания исключения возвращаем None
+        except Exception as e:
+            print(f"🔥 ОШИБКА ПРИ СОЗДАНИИ РАССЫЛКИ: {e}")
+            traceback.print_exc()
+            return None
     
     async def send_broadcast(self, broadcast_id: int) -> bool:
         """
@@ -51,6 +57,11 @@ class BroadcastService:
             if not broadcast:
                 return False
             
+            # Если рассылка была отложена, меняем статус на in_progress перед началом
+            if broadcast.status == "pending":
+                broadcast.status = "in_progress"
+                await self.session.flush()
+
             # Получаем всех пользователей
             result = await self.session.execute(select(User.user_id))
             user_ids = result.scalars().all()
@@ -66,7 +77,6 @@ class BroadcastService:
                 .where(Broadcast.id == broadcast_id)
                 .values(total_count=total_count)
             )
-            await self.session.commit()
             
             # Отправляем сообщение каждому пользователю
             for user_id in user_ids:
@@ -77,13 +87,12 @@ class BroadcastService:
                     else:
                         failed_count += 1
                 except Exception as e:
-                    self.logger.error(f"Error sending broadcast to user {user_id}: {e}")
                     blocked_count += 1
                 
                 # Делаем паузу, чтобы не превысить лимиты Telegram
                 await asyncio.sleep(0.05)  # 50ms delay
             
-            # Обновляем статистику
+            # Обновляем статистику и завершаем
             await self.session.execute(
                 update(Broadcast)
                 .where(Broadcast.id == broadcast_id)
@@ -95,13 +104,10 @@ class BroadcastService:
                     completed_at=datetime.now()
                 )
             )
-            await self.session.commit()
             
             return True
         except Exception as e:
-            # Обработка любых ошибок (например, связанных с базой данных или сетевыми ошибками)
             self.logger.error(f"Error sending broadcast: {e}")
-            await self.session.rollback()
             return False
     
     async def _send_single_message(self, user_id: int, broadcast: Broadcast) -> bool:
@@ -134,17 +140,14 @@ class BroadcastService:
                 )
             return True
         except Exception as e:
-            self.logger.error(f"Failed to send message to {user_id}: {e}")
             # Проверяем тип ошибки, чтобы определить, заблокирован ли бот
             if "blocked" in str(e).lower() or "not found" in str(e).lower():
                 return False
-            return True  # Возвращаем True для других типов ошибок, чтобы не считать как фейл
+            return True
     
-    async def get_broadcast_history(self, page: int = 1, page_size: int = 10) -> tuple[List[Broadcast], int]:
-        """
-        Получение истории рассылок с пагинацией
-        """
+    async def get_broadcast_history(self, page: int = 1, page_size: int = 10) -> tuple[list[Broadcast], int]:
         try:
+            from sqlalchemy import func
             offset = (page - 1) * page_size
             
             result = await self.session.execute(
@@ -161,14 +164,11 @@ class BroadcastService:
             
             return broadcasts, total_count or 0
         except Exception:
-            # Обработка любых ошибок (например, связанных с базой данных)
             return [], 0
     
-    async def get_scheduled_broadcasts(self, page: int = 1, page_size: int = 10) -> tuple[List[ScheduledBroadcast], int]:
-        """
-        Получение запланированных рассылок
-        """
+    async def get_scheduled_broadcasts(self, page: int = 1, page_size: int = 10) -> tuple[list[ScheduledBroadcast], int]:
         try:
+            from sqlalchemy import func
             offset = (page - 1) * page_size
             
             result = await self.session.execute(
@@ -185,5 +185,45 @@ class BroadcastService:
             
             return scheduled_broadcasts, total_count or 0
         except Exception:
-            # Обработка любых ошибок (например, связанных с базой данных)
             return [], 0
+
+# --- НОВАЯ ФУНКЦИЯ ВОССТАНОВЛЕНИЯ ---
+async def recover_stuck_broadcasts(bot: Bot):
+    """
+    Ищет зависшие рассылки (in_progress) при старте бота,
+    меняет их статус на interrupted и уведомляет админа.
+    """
+    async with async_session_maker() as session:
+        try:
+            # Ищем зависшие
+            stmt = select(Broadcast).where(Broadcast.status == "in_progress")
+            result = await session.execute(stmt)
+            stuck_broadcasts = result.scalars().all()
+            
+            if not stuck_broadcasts:
+                return
+
+            logging.warning(f"⚠️ Found {len(stuck_broadcasts)} stuck broadcasts via recovery.")
+
+            for bc in stuck_broadcasts:
+                # Меняем статус
+                bc.status = "interrupted"
+                
+                # Уведомляем админа
+                try:
+                    await bot.send_message(
+                        bc.created_by,
+                        f"⚠️ <b>Внимание!</b>\n\n"
+                        f"Рассылка #{bc.id} была прервана из-за перезагрузки бота.\n"
+                        f"Статус изменен на 'Прервано'.\n"
+                        f"Отправлено: {bc.sent_count}/{bc.total_count}.\n\n"
+                        f"Вы можете создать новую рассылку или повторить эту из меню 'История'."
+                    )
+                except Exception as e:
+                    logging.error(f"Failed to notify admin about stuck broadcast #{bc.id}: {e}")
+            
+            await session.commit()
+            logging.info("✅ All stuck broadcasts recovered to 'interrupted' status.")
+            
+        except Exception as e:
+            logging.error(f"Error during broadcast recovery: {e}")
