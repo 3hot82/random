@@ -59,50 +59,32 @@ async def finish_giveaway_task(giveaway_id: int):
             req_channels = await get_required_channels(session, giveaway_id)
             final_winner_ids = []
             
-            # --- ЭТАП 1: Подкрутка (если есть) ---
-            if gw.predetermined_winner_id:
-                if await check_subscription_all(bot, gw.predetermined_winner_id, gw.channel_id, req_channels):
-                    # Проверяем, жив ли юзер
-                    try:
-                        await bot.send_chat_action(gw.predetermined_winner_id, "typing")
-                        final_winner_ids.append(gw.predetermined_winner_id)
-                    except Exception as e:
-                        logger.warning(f"Rigged winner {gw.predetermined_winner_id} is dead/blocked. Error: {e}")
-
-            # --- ЭТАП 2: Честный выбор (с проверкой на доступность) ---
-            needed = gw.winners_count - len(final_winner_ids)
-            processed_candidates = set(final_winner_ids)
+            # --- ИСПОЛЬЗУЕМ ОПТИМИЗИРОВАННЫЙ ВЫБОР ПОБЕДИТЕЛЕЙ ЧЕРЕЗ SQL ---
+            from core.logic.randomizer import select_winners_sql
+            all_candidate_ids = await get_all_participant_ids(session, giveaway_id)
             
-            attempts = 0
-            max_attempts = 15 
-            
-            while needed > 0 and attempts < max_attempts:
-                attempts += 1
-                batch_size = needed * 4 + 10 
-                candidates = await get_weighted_candidates(session, giveaway_id, limit=batch_size)
+            if len(all_candidate_ids) == 0:
+                logger.info(f"No participants for giveaway {giveaway_id}")
+            else:
+                # Выбираем победителей через SQL
+                sql_selected_winners = await select_winners_sql(
+                    session=session,
+                    giveaway_id=giveaway_id,
+                    winners_count=gw.winners_count,
+                    predetermined_winner_id=gw.predetermined_winner_id
+                )
                 
-                if not candidates:
-                    break 
-
-                has_new = False
-                for uid in candidates:
-                    if uid in processed_candidates:
-                        continue
-                    
-                    has_new = True
-                    processed_candidates.add(uid)
-                    
-                    # 1. Проверяем подписку
+                # Проверяем каждого выбранного победителя на актуальность (подписка, активность)
+                for uid in sql_selected_winners:
+                    # Проверяем подписку
                     if await check_subscription_all(bot, uid, gw.channel_id, req_channels):
-                        # 2. ПРОВЕРКА НА "ЖИВОГО" ЮЗЕРА
+                        # ПРОВЕРКА НА "ЖИВОГО" ЮЗЕРА
                         try:
                             # Пытаемся отправить "тихое" действие или сообщение
                             await bot.send_chat_action(uid, "typing")
                             
                             # Если ок - добавляем
                             final_winner_ids.append(uid)
-                            needed -= 1
-                            if needed == 0: break
                             
                         except (TelegramForbiddenError, TelegramNotFound):
                             logger.info(f"User {uid} blocked bot or deleted account. Skipping.")
@@ -110,10 +92,9 @@ async def finish_giveaway_task(giveaway_id: int):
                         except Exception as e:
                             logger.error(f"Error checking user {uid}: {e}")
                             continue
-                
-                if not has_new:
-                    break
-
+                    else:
+                        logger.info(f"Winner {uid} no longer meets subscription requirements. Skipping.")
+            
             # --- ЭТАП 3: Сохранение ---
             gw.status = "finished"
             
@@ -194,6 +175,9 @@ async def finish_giveaway_task(giveaway_id: int):
                     logger.error(f"Failed to edit message reply markup: {e}")
                     pass
                     
+            except TelegramForbiddenError:
+                logger.error(f"Bot lost access to channel {gw.channel_id} when finishing giveaway {gw.id}")
+                # Не прерываем выполнение, просто логируем
             except Exception as e:
                 logger.error(f"Error publishing results: {e}")
 
@@ -222,7 +206,7 @@ async def process_expired_giveaways():
 async def update_active_giveaways_task():
     """Фоновая задача: обновляет счетчики."""
     bot = Bot(
-        token=config.BOT_TOKEN.get_secret_value(), 
+        token=config.BOT_TOKEN.get_secret_value(),
         default=DefaultBotProperties(parse_mode="HTML")
     )
     
@@ -253,17 +237,68 @@ async def update_active_giveaways_task():
                     
                     # --- ИЗМЕНЕНИЕ: Увеличенная задержка для защиты от FloodWait ---
                     # 1.5 секунды - безопасный интервал для массовых обновлений
-                    await asyncio.sleep(1.5) 
+                    await asyncio.sleep(1.5)
                     # -------------------------------------------------------------
 
+                except TelegramForbiddenError as e:
+                    # Бот был удален из админов или заблокирован
+                    logger.error(f"Bot lost access to channel {gw.channel_id} for giveaway {gw.id}: {e}")
+                    # Обновляем статус розыгрыша в базе данных
+                    gw.status = 'paused_error'
+                    try:
+                        await session.commit()
+                        # Отправляем уведомление владельцу
+                        try:
+                            await bot.send_message(
+                                chat_id=gw.owner_id,
+                                text=f"⚠️ Я потерял доступ к каналу. Розыгрыш приостановлен. Верните админку и нажмите 'Обновить'.\nID розыгрыша: {gw.id}"
+                            )
+                        except Exception as notify_error:
+                            logger.error(f"Failed to notify owner about access loss: {notify_error}")
+                    except Exception as db_error:
+                        logger.error(f"Failed to update giveaway status after access loss: {db_error}")
+                        
+                except TelegramBadRequest as e:
+                    if "message to edit not found" in str(e).lower():
+                        # Пост удален вручную
+                        logger.error(f"Post was deleted manually for giveaway {gw.id}: {e}")
+                        # Обновляем статус розыгрыша в базе данных
+                        gw.status = 'cancelled'
+                        try:
+                            await session.commit()
+                            # Отправляем уведомление владельцу
+                            try:
+                                await bot.send_message(
+                                    chat_id=gw.owner_id,
+                                    text=f"⚠️ Пост с розыгрышем был удален вручную. Розыгрыш отменен.\nID розыгрыша: {gw.id}"
+                                )
+                            except Exception as notify_error:
+                                logger.error(f"Failed to notify owner about post deletion: {notify_error}")
+                        except Exception as db_error:
+                            logger.error(f"Failed to update giveaway status after post deletion: {db_error}")
+                    elif "message is not modified" in str(e).lower():
+                        # Сообщение не изменилось, это нормально
+                        continue
+                    else:
+                        logger.error(f"BadRequest error updating GW {gw.id}: {e}")
+                        
                 except TelegramRetryAfter as e:
                     # Если все-таки словили флуд, ждем сколько просят
                     logger.warning(f"FloodWait updating GW {gw.id}. Sleeping {e.retry_after}s")
                     await asyncio.sleep(e.retry_after)
+                    
                 except Exception as e:
-                    if "message is not modified" in str(e).lower():
-                        continue
-                    logger.error(f"Skip update GW {gw.id}: {e}")
+                    logger.error(f"Unexpected error updating GW {gw.id}: {e}")
                     
     finally:
         await bot.session.close()
+
+
+async def get_giveaways_with_errors():
+    """
+    Получает список розыгрышей с ошибками для отображения в админке
+    """
+    from database.requests.giveaway_repo import get_giveaways_by_status
+    async with async_session_maker() as session:
+        error_giveaways = await get_giveaways_by_status(session, 'paused_error')
+        return error_giveaways

@@ -94,11 +94,23 @@ async def get_participants_count(session: AsyncSession, giveaway_id: int) -> int
     return await session.scalar(stmt)
 
 async def get_weighted_candidates(session: AsyncSession, giveaway_id: int, limit: int = 100) -> list[int]:
+    """
+    Получает кандидатов с учетом веса (количества билетов) для выбора победителей
+    """
     random_weight = -func.ln(func.random()) / Participant.tickets_count
     stmt = select(Participant.user_id)\
         .where(Participant.giveaway_id == giveaway_id)\
         .order_by(random_weight)\
         .limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_all_participant_ids(session: AsyncSession, giveaway_id: int) -> list[int]:
+    """
+    Получает все ID участников розыгрыша (для случаев, когда нужно выбрать из всех)
+    """
+    stmt = select(Participant.user_id).where(Participant.giveaway_id == giveaway_id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 

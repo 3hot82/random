@@ -5,6 +5,8 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from redis.asyncio import Redis
+from config import config
 
 from database.models.participant import Participant
 from database.models.giveaway import Giveaway
@@ -23,6 +25,9 @@ from core.services.ref_service import create_ref_link
 from core.services.checker_service import is_user_subscribed
 
 router = Router()
+
+# Инициализация Redis для распределенной блокировки
+redis = Redis.from_url(config.REDIS_URL)
 
 class JoinState(StatesGroup):
     captcha = State()
@@ -55,6 +60,7 @@ async def try_join_giveaway(
     if user.id == gw.owner_id:
         return await message.answer("⚠️ Вы организатор этого розыгрыша.")
 
+    # Проверяем, не участвует ли пользователь уже, используя уникальный индекс
     existing_stmt = select(Participant).where(
         Participant.user_id == user.id,
         Participant.giveaway_id == gw_id
@@ -78,21 +84,52 @@ async def try_join_giveaway(
         except Exception: pass
         return
 
-    # Сохраняем реферала в БД (надежно)
-    if referrer_id:
-        await add_pending_referral(session, user.id, referrer_id, gw_id)
+    # Используем Redis Lock для предотвращения race condition при регистрации
+    lock_key = f"join_lock:{gw_id}:{user.id}"
+    lock = redis.lock(lock_key, timeout=10, blocking_timeout=5)
     
-    await state.update_data(gw_id=gw_id)
+    try:
+        # Пытаемся получить блокировку
+        acquired = await lock.acquire(blocking=False)
+        if not acquired:
+            return await message.answer("⏳ Пожалуйста, подождите немного и попробуйте снова.")
+        
+        # Повторная проверка на случай, если пользователь успел зарегистрироваться
+        # пока мы ждали блокировку
+        existing = await session.scalar(existing_stmt)
+        if existing:
+            text = (
+                f"👋 <b>Ты уже в игре!</b>\n\n"
+                f"🎫 Твой билет: <code>{existing.ticket_code}</code>\n"
+                f"⚡️ Шансов на победу: <b>{existing.tickets_count}</b>"
+            )
+            if gw.is_referral_enabled:
+                token = await create_ref_link(user.id)
+                ref_link = f"https://t.me/{bot_username}?start=gw_{gw_id}_{token}"
+                text += f"\n\n🔗 Твоя реф. ссылка:\n<code>{ref_link}</code>"
+            
+            try: await message.answer(text, disable_web_page_preview=True)
+            except Exception: pass
+            return
 
-    if gw.is_captcha_enabled:
-        await state.set_state(JoinState.captcha)
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🤖 Я не робот", callback_data="captcha_solved")]
-        ])
-        await message.answer("🛡 <b>Проверка на бота</b>\nНажмите кнопку ниже.", reply_markup=kb)
-        return
+        # Сохраняем реферала в БД (надежно)
+        if referrer_id:
+            await add_pending_referral(session, user.id, referrer_id, gw_id)
+        
+        await state.update_data(gw_id=gw_id)
 
-    await check_subscriptions_step(message, user.id, gw, session, bot, state)
+        if gw.is_captcha_enabled:
+            await state.set_state(JoinState.captcha)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🤖 Я не робот", callback_data="captcha_solved")]
+            ])
+            await message.answer("🛡 <b>Проверка на бота</b>\nНажмите кнопку ниже.", reply_markup=kb)
+            return
+
+        await check_subscriptions_step(message, user.id, gw, session, bot, state)
+    finally:
+        # В любом случае освобождаем блокировку
+        await lock.release()
 
 @router.callback_query(JoinState.captcha, F.data == "captcha_solved")
 async def captcha_solved(call: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
@@ -103,7 +140,7 @@ async def captcha_solved(call: CallbackQuery, state: FSMContext, session: AsyncS
     if not gw:
         await call.answer("Ошибка")
         return await state.clear()
-
+    
     await call.message.delete()
     await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state)
 

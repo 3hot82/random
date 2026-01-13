@@ -16,6 +16,12 @@ class Giveaway(Base):
     finish_time: Mapped[datetime] = mapped_column(DateTime)
     
     status: Mapped[str] = mapped_column(String, default="active")
+    
+    # Возможные значения статуса:
+    # 'active' - активный розыгрыш
+    # 'finished' - завершенный розыгрыш
+    # 'cancelled' - отмененный (например, пост удален)
+    # 'paused_error' - приостановлен из-за ошибки (например, бот кикнут)
     predetermined_winner_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     media_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -35,3 +41,6 @@ class Giveaway(Base):
 Index('idx_giveaways_status', Giveaway.status)
 Index('idx_giveaways_owner_id', Giveaway.owner_id)
 Index('idx_giveaways_created_at', Giveaway.finish_time.desc())
+
+# Индекс для быстрого поиска розыгрышей с ошибками доступа
+Index('idx_giveaways_status_paused_error', Giveaway.status == 'paused_error')

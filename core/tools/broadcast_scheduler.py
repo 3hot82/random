@@ -27,7 +27,7 @@ broadcast_job_stores = {
     )
 }
 
-broadcast_scheduler = AsyncIOScheduler(jobstores=broadcast_job_stores)
+broadcast_scheduler = AsyncIOScheduler(jobstores=broadcast_job_stores, timezone="UTC")
 
 async def schedule_broadcast_task(broadcast_id: int, scheduled_time):
     """

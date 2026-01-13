@@ -91,3 +91,10 @@ async def count_giveaways_by_status(session: AsyncSession, owner_id: int, status
         Giveaway.status == status
     )
     return await session.scalar(stmt)
+
+async def get_giveaways_by_status(session: AsyncSession, status: str):
+    """Получает список розыгрышей с определенным статусом"""
+    from sqlalchemy.orm import selectinload
+    stmt = select(Giveaway).where(Giveaway.status == status).options(selectinload(Giveaway.required_channels))
+    result = await session.execute(stmt)
+    return result.scalars().all()

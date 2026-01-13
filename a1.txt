@@ -844,180 +844,133 @@ def get_stats_filter_keyboard() -> InlineKeyboardMarkup:
     )
     
     return builder.as_markup()=== ./keyboards/admin_broadcast_keyboards.py ===
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardButton
-
 
 def get_broadcast_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
     builder.row(
-        InlineKeyboardButton(
-            text="✍️ Создать рассылку",
-            callback_data="admin_create_broadcast"
-        )
+        InlineKeyboardButton(text="✍️ Создать рассылку", callback_data="admin_create_broadcast")
     )
     builder.row(
-        InlineKeyboardButton(
-            text="📝 История рассылок",
-            callback_data="admin_broadcast_history_1"
-        )
+        InlineKeyboardButton(text="📝 История рассылок", callback_data="admin_broadcast_history_1")
     )
     builder.row(
-        InlineKeyboardButton(
-            text="⏱ Отложенные рассылки",
-            callback_data="admin_scheduled_broadcasts_1"
-        )
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text="📊 Статистика рассылок",
-            callback_data="admin_broadcast_stats"
-        )
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text="◀️ Назад",
-            callback_data="admin_main_menu"
-        )
+        InlineKeyboardButton(text="⏱ Отложенные рассылки", callback_data="admin_scheduled_broadcasts_1")
     )
     
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin_main_menu"))
     return builder.as_markup()
 
 
 def get_broadcast_preview_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(
-            text="📤 Отправить сейчас",
-            callback_data="admin_send_broadcast_now"
-        ),
-        InlineKeyboardButton(
-            text="⏰ Отложенная отправка",
-            callback_data="admin_schedule_broadcast"
-        )
+        InlineKeyboardButton(text="📤 Отправить сейчас", callback_data="admin_send_broadcast_now"),
+        InlineKeyboardButton(text="⏰ Отложенная отправка", callback_data="admin_schedule_broadcast")
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="◀️ Назад",
-            callback_data="admin_broadcast"
-        )
-    )
-    return builder.as_markup()
-
-
-def get_broadcast_history_pagination_keyboard(current_page: int, total_count: int, page_size: int = 10) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    
-    total_pages = (total_count + page_size - 1) // page_size
-    
-    if current_page > 1:
-        builder.button(
-            text="⏪ Назад",
-            callback_data=f"admin_broadcast_history_{current_page - 1}"
-        )
-    
-    builder.button(
-        text=f"{current_page}/{total_pages}",
-        callback_data="admin_ignore"
-    )
-    
-    if current_page < total_pages:
-        builder.button(
-            text="Вперед ⏩",
-            callback_data=f"admin_broadcast_history_{current_page + 1}"
-        )
-    
-    builder.adjust(3)
-    
-    # Кнопка "Назад к меню"
-    builder.row(
-        InlineKeyboardButton(
-            text="◀️ Назад к рассылкам",
-            callback_data="admin_broadcast"
-        )
-    )
-    
-    return builder.as_markup()
-
-
-def get_broadcast_detail_actions_keyboard(broadcast_id: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(
-            text="🔄 Повторная отправка",
-            callback_data=f"admin_resend_broadcast_{broadcast_id}"
-        )
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text="◀️ Назад",
-            callback_data="admin_broadcast_history_1"
-        )
-    )
-    return builder.as_markup()
-
-
-def get_scheduled_broadcasts_pagination_keyboard(current_page: int, total_count: int, page_size: int = 10) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    
-    total_pages = (total_count + page_size - 1) // page_size
-    
-    if current_page > 1:
-        builder.button(
-            text="⏪ Назад",
-            callback_data=f"admin_scheduled_broadcasts_{current_page - 1}"
-        )
-    
-    builder.button(
-        text=f"{current_page}/{total_pages}",
-        callback_data="admin_ignore"
-    )
-    
-    if current_page < total_pages:
-        builder.button(
-            text="Вперед ⏩",
-            callback_data=f"admin_scheduled_broadcasts_{current_page + 1}"
-        )
-    
-    builder.adjust(3)
-    
-    # Кнопка "Назад к меню"
-    builder.row(
-        InlineKeyboardButton(
-            text="◀️ Назад к рассылкам",
-            callback_data="admin_broadcast"
-        )
-    )
-    
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin_broadcast"))
     return builder.as_markup()
 
 
 def get_cancel_broadcast_creation_keyboard() -> InlineKeyboardMarkup:
-    """
-    Клавиатура с кнопкой отмены создания рассылки
-    """
     builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(
-            text="❌ Отмена",
-            callback_data="admin_broadcast"
-        )
-    )
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="admin_broadcast"))
     return builder.as_markup()
 
 
 def get_cancel_schedule_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="admin_broadcast"))
+    return builder.as_markup()
+
+
+# --- СПИСКИ (ИСТОРИЯ И ОТЛОЖЕННЫЕ) ---
+
+def get_broadcast_list_keyboard(broadcasts: list, current_page: int, total_count: int, page_size: int, is_scheduled: bool) -> InlineKeyboardMarkup:
     """
-    Клавиатура с кнопкой отмены планирования
+    Универсальная клавиатура для списка рассылок (кнопки вместо текста).
+    is_scheduled: True для отложенных, False для истории.
     """
     builder = InlineKeyboardBuilder()
+    
+    # Префикс для навигации и для открытия деталей
+    nav_prefix = "admin_scheduled_broadcasts" if is_scheduled else "admin_broadcast_history"
+    detail_prefix = "admin_scheduled_detail" if is_scheduled else "admin_broadcast_detail"
+    
+    # Генерация кнопок для каждой рассылки
+    for bc in broadcasts:
+        # Формируем текст кнопки: Дата + Начало текста
+        dt_source = bc.scheduled_time if is_scheduled else bc.created_at
+        dt_str = dt_source.strftime('%d.%m %H:%M') if dt_source else "???"
+        
+        text_preview = bc.message_text[:20] + "..." if bc.message_text else "[Медиа]"
+        status_icon = "⏳" if is_scheduled else ("✅" if bc.status == 'completed' else "📝")
+        
+        btn_text = f"{status_icon} {dt_str} | {text_preview}"
+        builder.row(InlineKeyboardButton(text=btn_text, callback_data=f"{detail_prefix}_{bc.id}"))
+
+    # Пагинация
+    total_pages = (total_count + page_size - 1) // page_size
+    pagination_row = []
+    
+    if current_page > 1:
+        pagination_row.append(InlineKeyboardButton(text="⬅️", callback_data=f"{nav_prefix}_{current_page - 1}"))
+    
+    pagination_row.append(InlineKeyboardButton(text=f"{current_page}/{total_pages or 1}", callback_data="admin_ignore"))
+    
+    if current_page < total_pages:
+        pagination_row.append(InlineKeyboardButton(text="➡️", callback_data=f"{nav_prefix}_{current_page + 1}"))
+    
+    if pagination_row:
+        builder.row(*pagination_row)
+    
+    # Кнопка назад
+    builder.row(InlineKeyboardButton(text="◀️ Назад к меню", callback_data="admin_broadcast"))
+    
+    return builder.as_markup()
+
+
+# Вспомогательные обертки для совместимости
+def get_broadcast_history_pagination_keyboard(current_page: int, total_count: int, page_size: int = 10) -> InlineKeyboardMarkup:
+    return get_broadcast_list_keyboard([], current_page, total_count, page_size, False)
+
+def get_scheduled_broadcasts_pagination_keyboard(current_page: int, total_count: int, page_size: int = 10) -> InlineKeyboardMarkup:
+    return get_broadcast_list_keyboard([], current_page, total_count, page_size, True)
+
+
+# --- ДЕТАЛЬНЫЙ ПРОСМОТР ---
+
+def get_broadcast_detail_keyboard(broadcast_id: int) -> InlineKeyboardMarkup:
+    """Для истории (завершенные)"""
+    builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(
-            text="❌ Отмена",
-            callback_data="admin_broadcast"
-        )
+        InlineKeyboardButton(text="🔄 Отправить повторно", callback_data=f"admin_resend_broadcast_{broadcast_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🔙 Назад к списку", callback_data="admin_broadcast_history_1")
+    )
+    return builder.as_markup()
+
+
+def get_scheduled_detail_keyboard(broadcast_id: int) -> InlineKeyboardMarkup:
+    """Для отложенных (можно удалить или отправить сразу)"""
+    builder = InlineKeyboardBuilder()
+    
+    # Кнопка отправки прямо сейчас
+    builder.row(
+        InlineKeyboardButton(text="📤 Отправить сейчас", callback_data=f"admin_force_send_scheduled_{broadcast_id}")
+    )
+    
+    # Кнопка удаления
+    builder.row(
+        InlineKeyboardButton(text="🗑 Удалить/Отменить", callback_data=f"admin_delete_scheduled_{broadcast_id}")
+    )
+    
+    # Кнопка назад
+    builder.row(
+        InlineKeyboardButton(text="🔙 Назад к списку", callback_data="admin_scheduled_broadcasts_1")
     )
     return builder.as_markup()=== ./keyboards/admin_giveaways_keyboards.py ===
 from aiogram.types import InlineKeyboardMarkup
@@ -1817,6 +1770,9 @@ import asyncio
 import logging
 import traceback
 
+# Добавляем импорт для создания сессии внутри функции восстановления
+from database import async_session_maker
+
 class BroadcastService:
     def __init__(self, bot: Bot, session: AsyncSession):
         self.bot = bot
@@ -1843,18 +1799,16 @@ class BroadcastService:
             
             self.session.add(broadcast)
             
-            # ВАЖНОЕ ИЗМЕНЕНИЕ: Используем flush() вместо commit()
-            # flush отправляет SQL INSERT в базу, генерирует ID, но оставляет транзакцию открытой
+            # Используем flush() вместо commit()
             await self.session.flush()
             
-            # Теперь можно обновить объект (получить created_at и т.д.)
+            # Теперь можно обновить объект
             await self.session.refresh(broadcast)
             
             return broadcast
         except Exception as e:
             print(f"🔥 ОШИБКА ПРИ СОЗДАНИИ РАССЫЛКИ: {e}")
             traceback.print_exc()
-            # Не делаем rollback() здесь, так как транзакцией управляет Middleware
             return None
     
     async def send_broadcast(self, broadcast_id: int) -> bool:
@@ -1866,6 +1820,11 @@ class BroadcastService:
             if not broadcast:
                 return False
             
+            # Если рассылка была отложена, меняем статус на in_progress перед началом
+            if broadcast.status == "pending":
+                broadcast.status = "in_progress"
+                await self.session.flush()
+
             # Получаем всех пользователей
             result = await self.session.execute(select(User.user_id))
             user_ids = result.scalars().all()
@@ -1876,14 +1835,11 @@ class BroadcastService:
             blocked_count = 0
             
             # Обновляем общее количество
-            # Используем execute вместо ORM update для скорости, flush не обязателен, 
-            # так как данные нужны только в конце
             await self.session.execute(
                 update(Broadcast)
                 .where(Broadcast.id == broadcast_id)
                 .values(total_count=total_count)
             )
-            # await self.session.flush() # Можно раскомментировать, если нужно видеть прогресс в других сессиях (при уровне изоляции READ COMMITTED)
             
             # Отправляем сообщение каждому пользователю
             for user_id in user_ids:
@@ -1899,7 +1855,7 @@ class BroadcastService:
                 # Делаем паузу, чтобы не превысить лимиты Telegram
                 await asyncio.sleep(0.05)  # 50ms delay
             
-            # Обновляем статистику
+            # Обновляем статистику и завершаем
             await self.session.execute(
                 update(Broadcast)
                 .where(Broadcast.id == broadcast_id)
@@ -1911,12 +1867,10 @@ class BroadcastService:
                     completed_at=datetime.now()
                 )
             )
-            # Финальный commit сделает Middleware
             
             return True
         except Exception as e:
             self.logger.error(f"Error sending broadcast: {e}")
-            # Не делаем rollback(), даем Middleware обработать ошибку
             return False
     
     async def _send_single_message(self, user_id: int, broadcast: Broadcast) -> bool:
@@ -1994,7 +1948,48 @@ class BroadcastService:
             
             return scheduled_broadcasts, total_count or 0
         except Exception:
-            return [], 0=== ./services/admin_statistics_service.py ===
+            return [], 0
+
+# --- НОВАЯ ФУНКЦИЯ ВОССТАНОВЛЕНИЯ ---
+async def recover_stuck_broadcasts(bot: Bot):
+    """
+    Ищет зависшие рассылки (in_progress) при старте бота,
+    меняет их статус на interrupted и уведомляет админа.
+    """
+    async with async_session_maker() as session:
+        try:
+            # Ищем зависшие
+            stmt = select(Broadcast).where(Broadcast.status == "in_progress")
+            result = await session.execute(stmt)
+            stuck_broadcasts = result.scalars().all()
+            
+            if not stuck_broadcasts:
+                return
+
+            logging.warning(f"⚠️ Found {len(stuck_broadcasts)} stuck broadcasts via recovery.")
+
+            for bc in stuck_broadcasts:
+                # Меняем статус
+                bc.status = "interrupted"
+                
+                # Уведомляем админа
+                try:
+                    await bot.send_message(
+                        bc.created_by,
+                        f"⚠️ <b>Внимание!</b>\n\n"
+                        f"Рассылка #{bc.id} была прервана из-за перезагрузки бота.\n"
+                        f"Статус изменен на 'Прервано'.\n"
+                        f"Отправлено: {bc.sent_count}/{bc.total_count}.\n\n"
+                        f"Вы можете создать новую рассылку или повторить эту из меню 'История'."
+                    )
+                except Exception as e:
+                    logging.error(f"Failed to notify admin about stuck broadcast #{bc.id}: {e}")
+            
+            await session.commit()
+            logging.info("✅ All stuck broadcasts recovered to 'interrupted' status.")
+            
+        except Exception as e:
+            logging.error(f"Error during broadcast recovery: {e}")=== ./services/admin_statistics_service.py ===
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, update
@@ -8496,6 +8491,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.redis import RedisJobStore
 from redis import ConnectionPool
 from config import config
+import logging
+
+logger = logging.getLogger(__name__)
 
 # APScheduler 3.x не умеет принимать строку URL напрямую.
 # Мы создаем пул соединений через redis-py, который умеет парсить URL.
@@ -8503,8 +8501,8 @@ pool = ConnectionPool.from_url(config.REDIS_URL)
 
 job_stores = {
     "default": RedisJobStore(
-        jobs_key="giveaway_jobs", 
-        run_times_key="giveaway_run_times", 
+        jobs_key="giveaway_jobs",
+        run_times_key="giveaway_run_times",
         connection_pool=pool  # <-- Передаем готовый пул вместо параметров
     )
 }
@@ -8513,9 +8511,11 @@ scheduler = AsyncIOScheduler(jobstores=job_stores, timezone="UTC")
 
 async def start_scheduler():
     scheduler.start()
+    logger.info("Scheduler started")
 
 async def shutdown_scheduler():
-    scheduler.shutdown()=== ./core/tools/formatters.py ===
+    scheduler.shutdown()
+    logger.info("Scheduler shutdown completed")=== ./core/tools/formatters.py ===
 from datetime import datetime
 from core.tools.timezone import to_msk
 
@@ -8545,16 +8545,25 @@ def format_giveaway_caption(prize_text: str, winners_count: int, finish_time: da
         f"🏆 <b>Призовых мест:</b> {winners_count}\n"
         f"⏳ <b>Итоги:</b> {date_str} ({time_left})"
     )=== ./core/tools/broadcast_scheduler.py ===
-# core/tools/broadcast_scheduler.py
+import logging
+from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.redis import RedisJobStore
 from redis import ConnectionPool
-from config import config
 from aiogram import Bot
-from services.admin_broadcast_service import BroadcastService
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.client.default import DefaultBotProperties
+from sqlalchemy import select, update
 
-# Создаем отдельный планировщик для рассылок
+from config import config
+from database import async_session_maker
+from database.models import Broadcast
+from services.admin_broadcast_service import BroadcastService
+
+# Настройка: Сколько минут бот может "опаздывать".
+# Если бот лежал больше этого времени, рассылка будет отменена.
+BROADCAST_TOLERANCE_MINUTES = 30
+
+# Создаем отдельный пул и планировщик для рассылок
 pool = ConnectionPool.from_url(config.REDIS_URL)
 
 broadcast_job_stores = {
@@ -8565,7 +8574,7 @@ broadcast_job_stores = {
     )
 }
 
-broadcast_scheduler = AsyncIOScheduler(jobstores=broadcast_job_stores, timezone="Europe/Moscow")
+broadcast_scheduler = AsyncIOScheduler(jobstores=broadcast_job_stores, timezone="UTC")
 
 async def schedule_broadcast_task(broadcast_id: int, scheduled_time):
     """
@@ -8573,11 +8582,9 @@ async def schedule_broadcast_task(broadcast_id: int, scheduled_time):
     """
     job_id = f"broadcast_{broadcast_id}"
     
-    # Удаляем старую задачу, если она существует
     if broadcast_scheduler.get_job(job_id):
         broadcast_scheduler.remove_job(job_id)
     
-    # Добавляем новую задачу
     broadcast_scheduler.add_job(
         send_scheduled_broadcast,
         'date',
@@ -8585,30 +8592,82 @@ async def schedule_broadcast_task(broadcast_id: int, scheduled_time):
         id=job_id,
         kwargs={
             'broadcast_id': broadcast_id
-        }
+        },
+        replace_existing=True,
+        # Добавляем misfire_grace_time на уровень планировщика (в секундах)
+        # Это защитит от запуска задач, если планировщик "проспал" слишком долго
+        misfire_grace_time=BROADCAST_TOLERANCE_MINUTES * 60
     )
+    logging.info(f"Scheduled broadcast #{broadcast_id} at {scheduled_time}")
 
 async def send_scheduled_broadcast(broadcast_id: int):
     """
-    Отправляет запланированную рассылку
+    Фактическая отправка рассылки (вызывается планировщиком)
     """
-    # Этот метод будет вызван планировщиком в нужное время
-    # Реализация будет зависеть от конкретной архитектуры приложения
-    # и может потребовать дополнительные настройки для получения
-    # необходимых зависимостей (бота, сессии БД и т.д.)
-    pass
+    logging.info(f"🚀 Starting scheduled broadcast #{broadcast_id}")
+    
+    bot = Bot(
+        token=config.BOT_TOKEN.get_secret_value(),
+        default=DefaultBotProperties(parse_mode="HTML")
+    )
+    
+    async with async_session_maker() as session:
+        try:
+            # 1. Получаем рассылку для проверки времени
+            broadcast = await session.get(Broadcast, broadcast_id)
+            
+            if not broadcast:
+                logging.warning(f"⚠️ Broadcast #{broadcast_id} not found in DB. Skipping.")
+                return
+
+            # 2. ПРОВЕРКА АКТУАЛЬНОСТИ (Защита от отправки старого при падении бота)
+            # Так как в БД мы пишем Naive UTC, сравниваем с utcnow()
+            now = datetime.utcnow()
+            scheduled = broadcast.scheduled_time
+            
+            # Разница во времени
+            delta = now - scheduled
+            
+            # Если мы опоздали больше чем на TOLERANCE минут
+            if delta > timedelta(minutes=BROADCAST_TOLERANCE_MINUTES):
+                logging.error(f"⛔ Broadcast #{broadcast_id} is too old! Late by {delta}. Cancelling.")
+                
+                # Помечаем в базе как expired
+                await session.execute(
+                    update(Broadcast)
+                    .where(Broadcast.id == broadcast_id)
+                    .values(status='expired', failed_count=0) # failed_count=0 чтобы не путать с ошибками
+                )
+                await session.commit()
+                
+                # Можно отправить уведомление админу (опционально)
+                # await bot.send_message(broadcast.created_by, f"⚠️ Рассылка #{broadcast_id} была отменена, так как бот был недоступен.")
+                return
+
+            # 3. Если время ок, отправляем
+            service = BroadcastService(bot, session)
+            success = await service.send_broadcast(broadcast_id)
+            
+            if success:
+                logging.info(f"✅ Scheduled broadcast #{broadcast_id} completed successfully")
+            else:
+                logging.error(f"❌ Scheduled broadcast #{broadcast_id} failed")
+                
+        except Exception as e:
+            logging.error(f"🔥 Critical error in scheduled broadcast #{broadcast_id}: {e}")
+        finally:
+            await bot.session.close()
 
 async def start_broadcast_scheduler():
-    """
-    Запускает планировщик рассылок
-    """
-    broadcast_scheduler.start()
+    """Запускает планировщик рассылок"""
+    if not broadcast_scheduler.running:
+        broadcast_scheduler.start()
+        logging.info("📢 Broadcast Scheduler started")
 
 async def shutdown_broadcast_scheduler():
-    """
-    Останавливает планировщик рассылок
-    """
-    broadcast_scheduler.shutdown()=== ./core/services/user_service.py ===
+    """Останавливает планировщик рассылок"""
+    if broadcast_scheduler.running:
+        broadcast_scheduler.shutdown()=== ./core/services/user_service.py ===
 import logging
 from typing import Optional, Dict, Any
 from aiogram import Bot
@@ -8835,6 +8894,7 @@ class NavigationService:
         return breadcrumbs=== ./core/services/checker_service.py ===
 import logging
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from redis.asyncio import Redis
 from config import config
 
@@ -8851,9 +8911,13 @@ async def is_user_subscribed(bot: Bot, channel_id: int, user_id: int, force_chec
     
     # 1. Если НЕ принудительная проверка, пробуем достать из кеша
     if not force_check:
-        cached_status = await redis.get(cache_key)
-        if cached_status is not None:
-            return cached_status.decode() == "1"
+        try:
+            cached_status = await redis.get(cache_key)
+            if cached_status is not None:
+                return cached_status.decode() == "1"
+        except Exception as e:
+            logger.warning(f"Redis cache error for {cache_key}: {e}")
+            # Если кеш недоступен, продолжаем с запросом к Telegram
 
     # 2. Спрашиваем у Telegram
     try:
@@ -8862,17 +8926,45 @@ async def is_user_subscribed(bot: Bot, channel_id: int, user_id: int, force_chec
         # Статусы, которые считаются "подписан"
         if member.status in ('creator', 'administrator', 'member', 'restricted'):
             # Кешируем положительный результат на 5 минут
-            await redis.set(cache_key, "1", ex=300)
+            await safe_set_cache(cache_key, "1", 300)
             return True
         else:
             # Кешируем отрицательный результат на 30 секунд
-            await redis.set(cache_key, "0", ex=30)
+            await safe_set_cache(cache_key, "0", 30)
+            return False
+            
+    except TelegramForbiddenError:
+        # Бот не имеет прав доступа к каналу
+        logger.error(f"Bot has no access to channel {channel_id} (User: {user_id})")
+        # Кешируем отрицательный результат на короткое время, так как статус может измениться
+        await safe_set_cache(cache_key, "0", 60)
+        return False
+        
+    except TelegramBadRequest as e:
+        # Некорректный запрос (например, неверный ID пользователя или канала)
+        if "user not found" in str(e).lower() or "chat not found" in str(e).lower():
+            logger.warning(f"User or channel not found (User: {user_id}, Channel: {channel_id})")
+            # Кешируем отрицательный результат на короткое время
+            await safe_set_cache(cache_key, "0", 60)
+            return False
+        else:
+            # Другая ошибка BadRequest
+            logger.error(f"Bad request when checking subscription (User: {user_id}, Channel: {channel_id}): {e}")
             return False
             
     except Exception as e:
         # Логируем ошибку, чтобы видеть в консоли, если бот не админ
         logger.error(f"Check sub error (User: {user_id}, Channel: {channel_id}): {e}")
-        return False=== ./core/services/ref_service.py ===
+        return False
+
+async def safe_set_cache(key: str, value: str, ex: int):
+    """
+    Безопасное сохранение в кеш с обработкой ошибок
+    """
+    try:
+        await redis.setex(key, ex, value)
+    except Exception as e:
+        logger.warning(f"Redis set error for {key}: {e}")=== ./core/services/ref_service.py ===
 import uuid
 from redis.asyncio import Redis
 from config import config
@@ -8905,7 +8997,7 @@ async def resolve_ref_link(token: str) -> int | None:
 import logging
 from typing import List, Dict, Optional
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from redis.asyncio import Redis
 from config import config
 
@@ -8935,6 +9027,10 @@ class ChannelService:
                 'invite_link': chat.invite_link,
                 'type': chat.type
             }
+        except TelegramForbiddenError:
+            # Бот не имеет доступа к каналу
+            logger.error(f"Bot has no access to chat {chat_id}")
+            return None
         except TelegramBadRequest as e:
             logger.error(f"Error getting chat info for {chat_id}: {e}")
             return None
@@ -8944,9 +9040,9 @@ class ChannelService:
 
     @staticmethod
     async def check_user_subscriptions(
-        bot: Bot, 
-        user_id: int, 
-        main_channel_id: int, 
+        bot: Bot,
+        user_id: int,
+        main_channel_id: int,
         required_channels: List = None,
         force_check: bool = False
     ) -> Dict[str, bool]:
@@ -9023,12 +9119,35 @@ class ChannelService:
         try:
             member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
             return member.status
+        except TelegramForbiddenError:
+            # Бот не имеет прав доступа к каналу
+            logger.error(f"Bot has no access to get member status (User: {user_id}, Chat: {chat_id})")
+            return None
         except TelegramBadRequest as e:
             logger.error(f"Error getting chat member status (User: {user_id}, Chat: {chat_id}): {e}")
             return None
         except Exception as e:
             logger.error(f"Unexpected error getting chat member status (User: {user_id}, Chat: {chat_id}): {e}")
-            return None=== ./core/services/__init__.py ===
+            return None
+
+    @staticmethod
+    async def verify_bot_admin_rights(bot: Bot, chat_id: int) -> bool:
+        """
+        Проверяет, является ли бот администратором канала
+        """
+        try:
+            member = await bot.get_chat_member(chat_id=chat_id, user_id=bot.id)
+            return member.status in ['creator', 'administrator']
+        except TelegramForbiddenError:
+            # Бот не имеет доступа к каналу
+            logger.error(f"Bot has no access to check admin rights in chat {chat_id}")
+            return False
+        except TelegramBadRequest as e:
+            logger.error(f"Error checking bot admin rights in chat {chat_id}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error checking bot admin rights in chat {chat_id}: {e}")
+            return False=== ./core/services/__init__.py ===
 === ./core/services/message_service.py ===
 from typing import Optional
 from aiogram import Bot
@@ -9041,10 +9160,10 @@ class MessageHandler:
     
     @staticmethod
     async def safe_edit_text(
-        bot: Bot, 
-        chat_id: int, 
-        message_id: int, 
-        text: str, 
+        bot: Bot,
+        chat_id: int,
+        message_id: int,
+        text: str,
         reply_markup: Optional[InlineKeyboardMarkup] = None,
         disable_web_page_preview: bool = False
     ) -> bool:
@@ -9076,10 +9195,10 @@ class MessageHandler:
 
     @staticmethod
     async def safe_edit_caption(
-        bot: Bot, 
-        chat_id: int, 
-        message_id: int, 
-        caption: str, 
+        bot: Bot,
+        chat_id: int,
+        message_id: int,
+        caption: str,
         reply_markup: Optional[InlineKeyboardMarkup] = None
     ) -> bool:
         """
@@ -9102,6 +9221,53 @@ class MessageHandler:
                 raise e
         except Exception:
             return False
+
+    @staticmethod
+    async def safe_send_message_with_rate_limit(
+        bot: Bot,
+        chat_id: int,
+        text: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        disable_web_page_preview: bool = False,
+        max_retries: int = 3
+    ) -> Optional[Message]:
+        """
+        Безопасная отправка сообщения с обработкой лимитов API Telegram
+        """
+        for attempt in range(max_retries):
+            try:
+                message = await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=disable_web_page_preview
+                )
+                return message
+            except TelegramRetryAfter as e:
+                # Обработка лимита частоты - ждем указанное время
+                wait_time = e.retry_after
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Rate limit exceeded. Waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}")
+                await asyncio.sleep(wait_time)
+            except TelegramBadRequest as e:
+                if "too many requests" in str(e).lower():
+                    # Временная блокировка за частые запросы
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Too many requests. Waiting 5 seconds before retry {attempt + 1}/{max_retries}")
+                    await asyncio.sleep(5)
+                else:
+                    raise e
+            except Exception as e:
+                # Неизвестная ошибка
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error sending message: {e}")
+                if attempt == max_retries - 1:
+                    return None
+                await asyncio.sleep(2)  # Ждем перед повторной попыткой
+        return None
 
     @staticmethod
     async def safe_edit_reply_markup(
@@ -9149,10 +9315,76 @@ class MessageHandler:
             return False
 
     @staticmethod
+    async def safe_edit_message_with_rate_limit(
+        bot: Bot,
+        chat_id: int,
+        message_id: int,
+        text: str = None,
+        caption: str = None,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        disable_web_page_preview: bool = False,
+        max_retries: int = 3
+    ) -> bool:
+        """
+        Безопасное редактирование сообщения с обработкой лимитов API Telegram
+        """
+        for attempt in range(max_retries):
+            try:
+                if caption is not None:
+                    # Редактирование медиа-сообщения
+                    await bot.edit_message_caption(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        caption=caption,
+                        reply_markup=reply_markup
+                    )
+                else:
+                    # Редактирование текстового сообщения
+                    await bot.edit_message_text(
+                        text=text,
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        reply_markup=reply_markup,
+                        disable_web_page_preview=disable_web_page_preview
+                    )
+                return True
+            except TelegramRetryAfter as e:
+                # Обработка лимита частоты - ждем указанное время
+                wait_time = e.retry_after
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Rate limit exceeded when editing message. Waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}")
+                await asyncio.sleep(wait_time)
+            except TelegramBadRequest as e:
+                if "message is not modified" in str(e).lower():
+                    # Сообщение не изменилось, это нормально
+                    return True
+                elif "message to edit not found" in str(e).lower():
+                    # Сообщение уже удалено
+                    return False
+                elif "too many requests" in str(e).lower():
+                    # Временная блокировка за частые запросы
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Too many requests when editing message. Waiting 5 seconds before retry {attempt + 1}/{max_retries}")
+                    await asyncio.sleep(5)
+                else:
+                    raise e
+            except Exception as e:
+                # Неизвестная ошибка
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error editing message: {e}")
+                if attempt == max_retries - 1:
+                    return False
+                await asyncio.sleep(2)  # Ждем перед повторной попыткой
+        return False
+
+    @staticmethod
     async def safe_send_message(
-        bot: Bot, 
-        chat_id: int, 
-        text: str, 
+        bot: Bot,
+        chat_id: int,
+        text: str,
         reply_markup: Optional[InlineKeyboardMarkup] = None,
         disable_web_page_preview: bool = False
     ) -> Optional[Message]:
@@ -9473,10 +9705,15 @@ import logging
 import secrets
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
-from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound
+from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound, TelegramRetryAfter
 from config import config
 from database import async_session_maker
-from database.requests.giveaway_repo import get_giveaway_by_id, get_active_giveaways, get_required_channels
+from database.requests.giveaway_repo import (
+    get_giveaway_by_id, 
+    get_active_giveaways, 
+    get_required_channels,
+    get_expired_active_giveaways
+)
 from database.requests.participant_repo import get_weighted_candidates, get_participants_count
 from database.models.winner import Winner
 from core.tools.formatters import format_giveaway_caption
@@ -9516,6 +9753,7 @@ async def finish_giveaway_task(giveaway_id: int):
 
         async with async_session_maker() as session:
             gw = await get_giveaway_by_id(session, giveaway_id)
+            # Проверка статуса (если вдруг он уже завершен другим процессом)
             if not gw or gw.status != 'active':
                 logger.warning(f"GW {giveaway_id} is not active or not found.")
                 return
@@ -9523,51 +9761,32 @@ async def finish_giveaway_task(giveaway_id: int):
             req_channels = await get_required_channels(session, giveaway_id)
             final_winner_ids = []
             
-            # --- ЭТАП 1: Подкрутка (если есть) ---
-            if gw.predetermined_winner_id:
-                if await check_subscription_all(bot, gw.predetermined_winner_id, gw.channel_id, req_channels):
-                    # Проверяем, жив ли юзер
-                    try:
-                        await bot.send_chat_action(gw.predetermined_winner_id, "typing")
-                        final_winner_ids.append(gw.predetermined_winner_id)
-                    except Exception as e:
-                        logger.warning(f"Rigged winner {gw.predetermined_winner_id} is dead/blocked. Error: {e}")
-
-            # --- ЭТАП 2: Честный выбор (с проверкой на доступность) ---
-            needed = gw.winners_count - len(final_winner_ids)
-            processed_candidates = set(final_winner_ids)
+            # --- ИСПОЛЬЗУЕМ ОПТИМИЗИРОВАННЫЙ ВЫБОР ПОБЕДИТЕЛЕЙ ЧЕРЕЗ SQL ---
+            from core.logic.randomizer import select_winners_sql
+            all_candidate_ids = await get_all_participant_ids(session, giveaway_id)
             
-            attempts = 0
-            max_attempts = 15 
-            
-            while needed > 0 and attempts < max_attempts:
-                attempts += 1
-                batch_size = needed * 4 + 10 
-                candidates = await get_weighted_candidates(session, giveaway_id, limit=batch_size)
+            if len(all_candidate_ids) == 0:
+                logger.info(f"No participants for giveaway {giveaway_id}")
+            else:
+                # Выбираем победителей через SQL
+                sql_selected_winners = await select_winners_sql(
+                    session=session,
+                    giveaway_id=giveaway_id,
+                    winners_count=gw.winners_count,
+                    predetermined_winner_id=gw.predetermined_winner_id
+                )
                 
-                if not candidates:
-                    break 
-
-                has_new = False
-                for uid in candidates:
-                    if uid in processed_candidates:
-                        continue
-                    
-                    has_new = True
-                    processed_candidates.add(uid)
-                    
-                    # 1. Проверяем подписку
+                # Проверяем каждого выбранного победителя на актуальность (подписка, активность)
+                for uid in sql_selected_winners:
+                    # Проверяем подписку
                     if await check_subscription_all(bot, uid, gw.channel_id, req_channels):
-                        # 2. ПРОВЕРКА НА "ЖИВОГО" ЮЗЕРА
+                        # ПРОВЕРКА НА "ЖИВОГО" ЮЗЕРА
                         try:
                             # Пытаемся отправить "тихое" действие или сообщение
-                            # Это самый надежный способ узнать, не заблочил ли он бота
                             await bot.send_chat_action(uid, "typing")
                             
                             # Если ок - добавляем
                             final_winner_ids.append(uid)
-                            needed -= 1
-                            if needed == 0: break
                             
                         except (TelegramForbiddenError, TelegramNotFound):
                             logger.info(f"User {uid} blocked bot or deleted account. Skipping.")
@@ -9575,10 +9794,9 @@ async def finish_giveaway_task(giveaway_id: int):
                         except Exception as e:
                             logger.error(f"Error checking user {uid}: {e}")
                             continue
-                
-                if not has_new:
-                    break
-
+                    else:
+                        logger.info(f"Winner {uid} no longer meets subscription requirements. Skipping.")
+            
             # --- ЭТАП 3: Сохранение ---
             gw.status = "finished"
             
@@ -9659,16 +9877,38 @@ async def finish_giveaway_task(giveaway_id: int):
                     logger.error(f"Failed to edit message reply markup: {e}")
                     pass
                     
+            except TelegramForbiddenError:
+                logger.error(f"Bot lost access to channel {gw.channel_id} when finishing giveaway {gw.id}")
+                # Не прерываем выполнение, просто логируем
             except Exception as e:
                 logger.error(f"Error publishing results: {e}")
 
     finally:
         await bot.session.close()
 
+# --- Safety Net: Обработка просроченных ---
+async def process_expired_giveaways():
+    logging.info("🔎 Checking for expired giveaways...")
+    async with async_session_maker() as session:
+        expired = await get_expired_active_giveaways(session)
+        count = len(expired)
+        if count > 0:
+            logging.warning(f"⚠️ Found {count} expired active giveaways. Finishing them now...")
+            for gw in expired:
+                try:
+                    logging.info(f"🔄 Processing expired GW #{gw.id}")
+                    await finish_giveaway_task(gw.id)
+                    await asyncio.sleep(1.5) # Пауза между завершениями
+                except Exception as e:
+                    logging.error(f"❌ Error finishing expired GW {gw.id}: {e}")
+        else:
+            logging.info("✅ No expired giveaways found.")
+
+# --- Фоновая задача обновления ---
 async def update_active_giveaways_task():
     """Фоновая задача: обновляет счетчики."""
     bot = Bot(
-        token=config.BOT_TOKEN.get_secret_value(), 
+        token=config.BOT_TOKEN.get_secret_value(),
         default=DefaultBotProperties(parse_mode="HTML")
     )
     
@@ -9696,14 +9936,74 @@ async def update_active_giveaways_task():
                             chat_id=gw.channel_id, message_id=gw.message_id,
                             text=new_caption, reply_markup=kb, disable_web_page_preview=True
                         )
-                    await asyncio.sleep(0.1)
+                    
+                    # --- ИЗМЕНЕНИЕ: Увеличенная задержка для защиты от FloodWait ---
+                    # 1.5 секунды - безопасный интервал для массовых обновлений
+                    await asyncio.sleep(1.5)
+                    # -------------------------------------------------------------
 
-                except Exception as e:
-                    if "message is not modified" in str(e).lower():
+                except TelegramForbiddenError as e:
+                    # Бот был удален из админов или заблокирован
+                    logger.error(f"Bot lost access to channel {gw.channel_id} for giveaway {gw.id}: {e}")
+                    # Обновляем статус розыгрыша в базе данных
+                    gw.status = 'paused_error'
+                    try:
+                        await session.commit()
+                        # Отправляем уведомление владельцу
+                        try:
+                            await bot.send_message(
+                                chat_id=gw.owner_id,
+                                text=f"⚠️ Я потерял доступ к каналу. Розыгрыш приостановлен. Верните админку и нажмите 'Обновить'.\nID розыгрыша: {gw.id}"
+                            )
+                        except Exception as notify_error:
+                            logger.error(f"Failed to notify owner about access loss: {notify_error}")
+                    except Exception as db_error:
+                        logger.error(f"Failed to update giveaway status after access loss: {db_error}")
+                        
+                except TelegramBadRequest as e:
+                    if "message to edit not found" in str(e).lower():
+                        # Пост удален вручную
+                        logger.error(f"Post was deleted manually for giveaway {gw.id}: {e}")
+                        # Обновляем статус розыгрыша в базе данных
+                        gw.status = 'cancelled'
+                        try:
+                            await session.commit()
+                            # Отправляем уведомление владельцу
+                            try:
+                                await bot.send_message(
+                                    chat_id=gw.owner_id,
+                                    text=f"⚠️ Пост с розыгрышем был удален вручную. Розыгрыш отменен.\nID розыгрыша: {gw.id}"
+                                )
+                            except Exception as notify_error:
+                                logger.error(f"Failed to notify owner about post deletion: {notify_error}")
+                        except Exception as db_error:
+                            logger.error(f"Failed to update giveaway status after post deletion: {db_error}")
+                    elif "message is not modified" in str(e).lower():
+                        # Сообщение не изменилось, это нормально
                         continue
-                    logger.error(f"Skip update GW {gw.id}: {e}")
+                    else:
+                        logger.error(f"BadRequest error updating GW {gw.id}: {e}")
+                        
+                except TelegramRetryAfter as e:
+                    # Если все-таки словили флуд, ждем сколько просят
+                    logger.warning(f"FloodWait updating GW {gw.id}. Sleeping {e.retry_after}s")
+                    await asyncio.sleep(e.retry_after)
+                    
+                except Exception as e:
+                    logger.error(f"Unexpected error updating GW {gw.id}: {e}")
+                    
     finally:
-        await bot.session.close()=== ./core/logic/ticket_gen.py ===
+        await bot.session.close()
+
+
+async def get_giveaways_with_errors():
+    """
+    Получает список розыгрышей с ошибками для отображения в админке
+    """
+    from database.requests.giveaway_repo import get_giveaways_by_status
+    async with async_session_maker() as session:
+        error_giveaways = await get_giveaways_by_status(session, 'paused_error')
+        return error_giveaways=== ./core/logic/ticket_gen.py ===
 # core/logic/ticket_gen.py
 import secrets
 import string
@@ -9732,6 +10032,8 @@ async def get_unique_ticket(session: AsyncSession, giveaway_id: int) -> str:
 # core/logic/randomizer.py
 import secrets
 from database.models.giveaway import Giveaway
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
 
 def select_winners(giveaway: Giveaway, participant_ids: list[int]) -> list[int]:
     """
@@ -9762,7 +10064,53 @@ def select_winners(giveaway: Giveaway, participant_ids: list[int]) -> list[int]:
             random_winners = secrets.SystemRandom().sample(pool_list, k=needed)
             winners.extend(random_winners)
 
-    return winners=== ./core/logic/exceptions.py ===
+    return winners
+
+async def select_winners_sql(session: AsyncSession, giveaway_id: int, winners_count: int, predetermined_winner_id: int = None) -> list[int]:
+    """
+    Выбирает победителей через SQL запрос, более эффективно для больших объемов
+    """
+    from database.models.participant import Participant
+    
+    # Начинаем с подготовки SQL-запроса
+    query = select(Participant.user_id).where(
+        Participant.giveaway_id == giveaway_id
+    )
+    
+    # Получаем всех участников
+    result = await session.execute(query)
+    all_participants = result.scalars().all()
+    
+    # Обрабатываем подкрутку (если есть предопределенный победитель)
+    winners = []
+    if predetermined_winner_id and predetermined_winner_id in all_participants:
+        winners.append(predetermined_winner_id)
+        all_participants = [pid for pid in all_participants if pid != predetermined_winner_id]
+    
+    # Сколько еще нужно победителей?
+    remaining_winners_needed = winners_count - len(winners)
+    
+    if remaining_winners_needed <= 0:
+        # Все места уже заняты предопределенным победителем
+        return winners
+    elif remaining_winners_needed >= len(all_participants):
+        # Участников меньше, чем оставшихся мест - все становятся победителями
+        winners.extend(all_participants)
+        return winners
+    else:
+        # Выбираем оставшихся победителей случайным образом через SQL
+        # Используем ORDER BY RANDOM() для честного выбора
+        subquery = select(Participant.user_id).where(
+            Participant.giveaway_id == giveaway_id
+        ).where(
+            Participant.user_id.notin_(winners)  # Исключаем предопределенных победителей
+        ).order_by(text('RANDOM()')).limit(remaining_winners_needed)
+        
+        result = await session.execute(subquery)
+        additional_winners = result.scalars().all()
+        winners.extend(additional_winners)
+        
+        return winners=== ./core/logic/exceptions.py ===
 # core/logic/exceptions.py
 
 class BotError(Exception):
@@ -12593,12 +12941,14 @@ from .db_session import DbSessionMiddleware
 from .throttling import ThrottlingMiddleware
 from .error_handler import ErrorMiddleware
 from .admin_middleware import AdminRateLimitMiddleware
+from .updates_filter import UpdatesFilterMiddleware  # <--- Добавлено
 
 __all__ = [
     "DbSessionMiddleware",
     "ThrottlingMiddleware", 
     "ErrorMiddleware",
-    "AdminRateLimitMiddleware"
+    "AdminRateLimitMiddleware",
+    "UpdatesFilterMiddleware" # <--- Добавлено
 ]=== ./middlewares/db_session.py ===
 # middlewares/db_session.py
 from typing import Callable, Awaitable, Dict, Any
@@ -12635,9 +12985,60 @@ class DbSessionMiddleware(BaseMiddleware):
                     # Обрабатываем ошибку через централизованный обработчик
                     await error_handler.handle_error(e, user_id, "db_session_middleware")
                     raise e
-=== ./main.py ===
+=== ./middlewares/updates_filter.py ===
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Callable, Awaitable, Dict, Any
+from aiogram import BaseMiddleware
+from aiogram.types import Message, TelegramObject
+
+logger = logging.getLogger(__name__)
+
+class UpdatesFilterMiddleware(BaseMiddleware):
+    """
+    Фильтрует сообщения, которые пришли, пока бот лежал.
+    Пропускает только:
+    1. "Свежие" сообщения (моложе TTL).
+    2. Платежи (successful_payment) - они важны всегда.
+    """
+    
+    def __init__(self, ttl_seconds: int = 60):
+        self.ttl = ttl_seconds
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any]
+    ) -> Any:
+        
+        # Мы фильтруем только Message, так как CallbackQuery (кнопки) обычно 
+        # не имеют поля date на верхнем уровне и их лучше обработать (или они сами протухнут у Telegram)
+        if not isinstance(event, Message):
+            return await handler(event, data)
+
+        # Всегда пропускаем платежи, даже если бот лежал час
+        if event.successful_payment or event.invoice_payload:
+            return await handler(event, data)
+
+        # Проверка времени
+        # Telegram присылает дату в UTC (aware или naive зависит от версии, приводим к aware UTC)
+        msg_date = event.date
+        if msg_date.tzinfo is None:
+            msg_date = msg_date.replace(tzinfo=timezone.utc)
+            
+        now = datetime.now(timezone.utc)
+        delta = (now - msg_date).total_seconds()
+
+        # Если сообщение старее TTL (например, 60 сек)
+        if delta > self.ttl:
+            logger.warning(f"⏩ Skipped old update from user {event.from_user.id} (delay: {int(delta)}s)")
+            return  # Просто выходим, не вызывая handler -> сообщение игнорируется
+            
+        return await handler(event, data)=== ./main.py ===
 import asyncio
 import logging
+import signal
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.redis import RedisStorage
@@ -12646,38 +13047,60 @@ from redis.asyncio import Redis
 
 from config import config
 from database import engine, Base
-from core.tools.scheduler import start_scheduler, scheduler
-from core.logic.game_actions import update_active_giveaways_task
+from core.tools.scheduler import start_scheduler, scheduler, shutdown_scheduler
+from core.tools.broadcast_scheduler import start_broadcast_scheduler, broadcast_scheduler, shutdown_broadcast_scheduler
+from core.logic.game_actions import update_active_giveaways_task, process_expired_giveaways
+from services.admin_broadcast_service import recover_stuck_broadcasts
 
 from middlewares.db_session import DbSessionMiddleware
 from middlewares.throttling import ThrottlingMiddleware
 from middlewares.error_handler import ErrorMiddleware
+# --- ИЗМЕНЕНИЕ: Импорт фильтра ---
+from middlewares.updates_filter import UpdatesFilterMiddleware
 
 # Импорты Роутеров
 from handlers.common import start
 from handlers.participant import join
-# Юзер Панель
 from handlers.user import dashboard, my_channels, my_participations, my_giveaways, premium
-# Конструктор
 from handlers.creator import constructor
 from handlers.creator import time_picker
-# Админ панель
 from handlers.admin import admin_router
 
 logger = logging.getLogger("aiogram.event")
 
 class UserIdMiddleware(BaseMiddleware):
     async def __call__(self, handler, event: (Message | CallbackQuery), data):
-        # Логируем user_id ДО обработки
         user_id = getattr(event.from_user, 'id', 'unknown')
         logger.info("Update from user_id=%s (bot_id=%s)", user_id, data['bot'].id)
-        
         return await handler(event, data)
+
+# Глобальная переменная для отслеживания состояния остановки
+stop_event = asyncio.Event()
+
+async def graceful_shutdown(signum=None, frame=None):
+    """Обработчик корректного завершения работы"""
+    if signum:
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+    
+    stop_event.set()
+    
+    # Останавливаем планировщики
+    try:
+        await shutdown_scheduler()
+        logger.info("Scheduler shutdown completed")
+    except Exception as e:
+        logger.error(f"Error shutting down scheduler: {e}")
+    
+    try:
+        await shutdown_broadcast_scheduler()
+        logger.info("Broadcast scheduler shutdown completed")
+    except Exception as e:
+        logger.error(f"Error shutting down broadcast scheduler: {e}")
 
 async def main():
     logging.basicConfig(level=logging.INFO)
     
-    # Инициализация БД (создание таблиц если их нет)
+    # Инициализация БД
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -12685,58 +13108,64 @@ async def main():
     bot = Bot(token=config.BOT_TOKEN.get_secret_value(), default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=RedisStorage(redis=redis))
     
-
     # --- Middleware ---
-    # 1. Обработчик ошибок (первым в цепочке)
+    # 1. Сначала фильтруем старые апдейты (outer_middleware срабатывает ДО всего)
+    dp.message.outer_middleware(UpdatesFilterMiddleware(ttl_seconds=60))
+    
+    # 2. Обработчик ошибок
     dp.update.middleware(ErrorMiddleware())
     
-    # 2. Сессия БД для каждого апдейта
+    # 3. Сессия БД
     dp.update.middleware(DbSessionMiddleware())
     
-    
-    # 4. Анти-спам (Throttling) - защита от частых кликов
-    # Подключаем и к сообщениям, и к колбэкам
+    # 4. Анти-спам
     dp.message.middleware(ThrottlingMiddleware(redis, rate_limit=1.0))
     dp.callback_query.middleware(ThrottlingMiddleware(redis, rate_limit=1.0))
 
     # --- Подключение Роутеров ---
-    
-    # 1. Админ панель (до остальных роутеров для приоритета)
     dp.include_router(admin_router)
     
-    # 2. Пользовательская панель (Дашборд, Каналы, Мои Розыгрыши, Премиум, Участия)
     from handlers.user import router as user_router
     dp.include_router(user_router)
     
-    # 3. Конструктор
     from handlers.creator import router as creator_router
     dp.include_router(creator_router)
     
-    # 4. Участие и Старт (важен порядок, start ловит диплинки)
     dp.include_router(join.router)
     dp.include_router(start.router)
 
-    # Запуск планировщика (обновление счетчиков участников раз в 30 мин)
+    # --- SAFETY NET ---
+    await process_expired_giveaways()
+    await recover_stuck_broadcasts(bot)
+
+    # Запуск планировщиков
     scheduler.add_job(update_active_giveaways_task, "interval", minutes=30, id="global_updater", replace_existing=True)
     await start_scheduler()
+    await start_broadcast_scheduler()
 
-    # Регистрируем middleware для логирования ID пользователей
     dp.message.middleware(UserIdMiddleware())
     dp.callback_query.middleware(UserIdMiddleware())
 
+    # Регистрация обработчиков сигналов для корректного завершения
+    signal.signal(signal.SIGTERM, lambda s, f: asyncio.create_task(graceful_shutdown(s, f)))
+    signal.signal(signal.SIGINT, lambda s, f: asyncio.create_task(graceful_shutdown(s, f)))
+
     try:
-        # ВАЖНО: Удаляем вебхук и сбрасываем старые апдейты перед запуском
-        # Это решает проблему обработки старых сообщений при рестарте
-        await bot.delete_webhook(drop_pending_updates=True)
+        # --- ВАЖНОЕ ИЗМЕНЕНИЕ: drop_pending_updates=False ---
+        # Мы теперь обрабатываем очередь, но Middleware отсеет старый мусор,
+        # оставив только платежи и совсем недавние сообщения.
+        await bot.delete_webhook(drop_pending_updates=False)
         
-        await dp.start_polling(bot)
+        # Запуск с ожиданием сигнала остановки
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), stop_event=stop_event)
     finally:
+        logger.info("Shutting down bot...")
         await bot.session.close()
         await redis.aclose()
+        logger.info("Bot shutdown completed")
 
 if __name__ == "__main__":
-    asyncio.run(main())
-=== ./filters/is_chat_member.py ===
+    asyncio.run(main())=== ./filters/is_chat_member.py ===
 # filters/is_chat_member.py
 from aiogram.filters import BaseFilter
 from aiogram.types import Message
@@ -12953,6 +13382,12 @@ class Giveaway(Base):
     finish_time: Mapped[datetime] = mapped_column(DateTime)
     
     status: Mapped[str] = mapped_column(String, default="active")
+    
+    # Возможные значения статуса:
+    # 'active' - активный розыгрыш
+    # 'finished' - завершенный розыгрыш
+    # 'cancelled' - отмененный (например, пост удален)
+    # 'paused_error' - приостановлен из-за ошибки (например, бот кикнут)
     predetermined_winner_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     media_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -12972,10 +13407,13 @@ class Giveaway(Base):
 Index('idx_giveaways_status', Giveaway.status)
 Index('idx_giveaways_owner_id', Giveaway.owner_id)
 Index('idx_giveaways_created_at', Giveaway.finish_time.desc())
+
+# Индекс для быстрого поиска розыгрышей с ошибками доступа
+Index('idx_giveaways_status_paused_error', Giveaway.status == 'paused_error')
 === ./database/models/participant.py ===
 # database/models/participant.py
 from datetime import datetime
-from sqlalchemy import BigInteger, ForeignKey, DateTime, Integer, String
+from sqlalchemy import BigInteger, ForeignKey, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
@@ -12984,6 +13422,12 @@ class Participant(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), primary_key=True)
     giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), primary_key=True)
+    
+    # Добавляем уникальный индекс для предотвращения дубликатов
+    __table_args__ = (
+        # Уникальный индекс для предотвращения дубликатов участников в одном розыгрыше
+        UniqueConstraint('user_id', 'giveaway_id', name='unique_user_giveaway'),
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Кол-во шансов (билетов)
@@ -13115,12 +13559,22 @@ async def get_active_giveaways(session: AsyncSession):
     result = await session.execute(stmt)
     return result.scalars().all()
 
+# --- НОВАЯ ФУНКЦИЯ ---
+async def get_expired_active_giveaways(session: AsyncSession):
+    """Возвращает активные розыгрыши, время которых истекло"""
+    stmt = select(Giveaway).where(
+        Giveaway.status == "active",
+        Giveaway.finish_time <= datetime.utcnow()
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+# ---------------------
+
 async def get_required_channels(session: AsyncSession, gw_id: int):
     stmt = select(GiveawayRequiredChannel).where(GiveawayRequiredChannel.giveaway_id == gw_id)
     result = await session.execute(stmt)
     return result.scalars().all()
 
-# --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ---
 async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: int = 50, offset: int = 0):
     """Получает список розыгрышей создателя с пагинацией"""
     from sqlalchemy.orm import selectinload
@@ -13128,7 +13582,7 @@ async def get_giveaways_by_owner(session: AsyncSession, owner_id: int, limit: in
         .options(selectinload(Giveaway.required_channels))\
         .order_by(desc(Giveaway.id))\
         .limit(limit)\
-        .offset(offset)  # <--- Добавлено смещение
+        .offset(offset)
     result = await session.execute(stmt)
     return result.scalars().all()
 
@@ -13147,7 +13601,14 @@ async def count_giveaways_by_status(session: AsyncSession, owner_id: int, status
         Giveaway.owner_id == owner_id,
         Giveaway.status == status
     )
-    return await session.scalar(stmt)=== ./database/requests/channel_repo.py ===
+    return await session.scalar(stmt)
+
+async def get_giveaways_by_status(session: AsyncSession, status: str):
+    """Получает список розыгрышей с определенным статусом"""
+    from sqlalchemy.orm import selectinload
+    stmt = select(Giveaway).where(Giveaway.status == status).options(selectinload(Giveaway.required_channels))
+    result = await session.execute(stmt)
+    return result.scalars().all()=== ./database/requests/channel_repo.py ===
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert
@@ -13298,11 +13759,23 @@ async def get_participants_count(session: AsyncSession, giveaway_id: int) -> int
     return await session.scalar(stmt)
 
 async def get_weighted_candidates(session: AsyncSession, giveaway_id: int, limit: int = 100) -> list[int]:
+    """
+    Получает кандидатов с учетом веса (количества билетов) для выбора победителей
+    """
     random_weight = -func.ln(func.random()) / Participant.tickets_count
     stmt = select(Participant.user_id)\
         .where(Participant.giveaway_id == giveaway_id)\
         .order_by(random_weight)\
         .limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_all_participant_ids(session: AsyncSession, giveaway_id: int) -> list[int]:
+    """
+    Получает все ID участников розыгрыша (для случаев, когда нужно выбрать из всех)
+    """
+    stmt = select(Participant.user_id).where(Participant.giveaway_id == giveaway_id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
@@ -13397,20 +13870,21 @@ async def errors_handler(update, error):
     admin_errors_handler(update, error)=== ./handlers/admin/broadcast_handlers.py ===
 from datetime import datetime
 from aiogram import F, Bot
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 
 from handlers.admin.admin_router import admin_router
 from keyboards.admin_broadcast_keyboards import (
     get_broadcast_menu_keyboard,
     get_broadcast_preview_keyboard,
-    get_broadcast_history_pagination_keyboard,
-    get_broadcast_detail_actions_keyboard,
-    get_scheduled_broadcasts_pagination_keyboard,
+    get_broadcast_list_keyboard,
+    get_broadcast_detail_keyboard,
+    get_scheduled_detail_keyboard,
     get_cancel_broadcast_creation_keyboard,
     get_cancel_schedule_keyboard
 )
@@ -13421,12 +13895,11 @@ from keyboards.admin_broadcast_time_keyboards import (
 )
 from services.admin_broadcast_service import BroadcastService
 from utils.admin_logger import log_admin_action
-from database.models import Broadcast, ScheduledBroadcast
+from database.models import Broadcast
 
 # Импорты инструментов
-# ДОБАВЛЕНО: to_utc, strip_tz для подготовки времени к записи в БД
 from core.tools.timezone import MSK, get_now_msk, to_utc, strip_tz
-from core.tools.broadcast_scheduler import schedule_broadcast_task
+from core.tools.broadcast_scheduler import schedule_broadcast_task, broadcast_scheduler
 
 
 class BroadcastState(StatesGroup):
@@ -13435,6 +13908,13 @@ class BroadcastState(StatesGroup):
     waiting_for_schedule_time = State()
     waiting_for_manual_schedule_time = State()
     waiting_for_recipient_filter = State()
+
+
+# Вспомогательная функция для кнопки "Назад" (если список пуст)
+def get_back_to_broadcast_menu_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin_broadcast"))
+    return builder.as_markup()
 
 
 @admin_router.callback_query(F.data == "admin_broadcast")
@@ -13457,7 +13937,6 @@ async def start_create_broadcast(callback: CallbackQuery, state: FSMContext):
 
 @admin_router.message(BroadcastState.waiting_for_message)
 async def process_broadcast_message(message: Message, state: FSMContext):
-    # Сохраняем данные рассылки во временные данные состояния
     broadcast_data = {}
     
     if message.text:
@@ -13480,7 +13959,6 @@ async def process_broadcast_message(message: Message, state: FSMContext):
     
     await state.update_data(broadcast_data=broadcast_data)
     
-    # Показываем предварительный просмотр
     keyboard = get_broadcast_preview_keyboard()
     preview_text = "📋 Предпросмотр:\n\n"
     if 'text' in broadcast_data:
@@ -13501,8 +13979,6 @@ async def send_broadcast_now(callback: CallbackQuery, state: FSMContext, session
         return
 
     service = BroadcastService(bot, session)
-    
-    # Создаем рассылку
     broadcast = await service.create_broadcast(
         message_text=broadcast_data.get('text', ''),
         photo_file_id=broadcast_data.get('photo'),
@@ -13515,20 +13991,18 @@ async def send_broadcast_now(callback: CallbackQuery, state: FSMContext, session
         await callback.answer("❌ Ошибка при создании рассылки в БД", show_alert=True)
         return
 
-    # Отправляем рассылку
     await service.send_broadcast(broadcast.id)
     
-    await callback.message.edit_text(f"✅ Рассылка #{broadcast.id} успешно отправлена!")
+    # --- ИЗМЕНЕНИЕ: Возвращаем меню вместо тупика ---
+    keyboard = get_broadcast_menu_keyboard()
+    await callback.message.edit_text(
+        f"✅ <b>Рассылка #{broadcast.id} успешно отправлена!</b>\n\n📢 Меню рассылки",
+        reply_markup=keyboard
+    )
+    
     await state.clear()
     
-    # Логируем действие
-    await log_admin_action(
-        session,
-        callback.from_user.id,
-        "broadcast_sent",
-        broadcast.id,
-        {"type": "immediate"}
-    )
+    await log_admin_action(session, callback.from_user.id, "broadcast_sent", broadcast.id, {"type": "immediate"})
     await callback.answer()
 
 
@@ -13545,11 +14019,8 @@ async def start_schedule_broadcast(callback: CallbackQuery, state: FSMContext):
 @admin_router.callback_query(F.data.startswith("admin_broadcast_date_set:"))
 async def select_broadcast_date(callback: CallbackQuery, state: FSMContext):
     await state.set_state(BroadcastState.waiting_for_schedule_time)
-    
-    # Извлекаем данные даты из callback
     _, year, month, day = callback.data.split(":")
     
-    # Показываем клавиатуру с выбором времени
     keyboard = get_broadcast_time_picker_keyboard(int(year), int(month), int(day))
     await callback.message.edit_text(
         f"⏰ Выберите время отправки для {day}.{month}.{year}:",
@@ -13562,41 +14033,31 @@ async def select_broadcast_date(callback: CallbackQuery, state: FSMContext):
 async def navigate_broadcast_calendar(callback: CallbackQuery):
     _, year, month = callback.data.split(":")
     keyboard = get_broadcast_date_picker_keyboard(int(year), int(month))
-    await callback.message.edit_text(
-        "⏰ Выберите дату отправки:",
-        reply_markup=keyboard
-    )
+    await callback.message.edit_text("⏰ Выберите дату отправки:", reply_markup=keyboard)
     await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_broadcast_time_set:"))
 async def select_broadcast_time(callback: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
-    # Извлекаем данные времени из callback
     _, year, month, day, hour, minute = callback.data.split(":")
     
     try:
-        # 1. Создаем объект datetime с указанием часового пояса MSK
         schedule_time = datetime(int(year), int(month), int(day), int(hour), int(minute), tzinfo=MSK)
         
-        # Проверяем, что время не в прошлом
         if schedule_time <= get_now_msk():
             await callback.answer("❌ Время уже прошло!", show_alert=True)
             return
         
-        # 2. Подготавливаем время для БД (UTC + Naive)
-        # asyncpg не принимает offset-aware datetime в поле timestamp without time zone
         schedule_time_db = strip_tz(to_utc(schedule_time))
         
-        # Получаем данные рассылки из состояния
         data = await state.get_data()
         broadcast_data = data.get('broadcast_data', {})
         
         if not broadcast_data:
-            await callback.answer("❌ Данные рассылки не найдены. Начните заново.", show_alert=True)
+            await callback.answer("❌ Данные не найдены.", show_alert=True)
             await state.clear()
             return
         
-        # Создаем рассылку через сервис
         service = BroadcastService(bot, session)
         broadcast = await service.create_broadcast(
             message_text=broadcast_data.get('text', ''),
@@ -13604,38 +14065,30 @@ async def select_broadcast_time(callback: CallbackQuery, state: FSMContext, sess
             video_file_id=broadcast_data.get('video'),
             document_file_id=broadcast_data.get('document'),
             admin_id=callback.from_user.id,
-            scheduled_time=schedule_time_db  # <-- Передаем подготовленное время для БД
+            scheduled_time=schedule_time_db
         )
         
-        # --- ПРОВЕРКА НА ОШИБКУ БД ---
         if not broadcast:
-            await callback.answer("❌ Ошибка базы данных! Не удалось сохранить рассылку.", show_alert=True)
+            await callback.answer("❌ Ошибка базы данных!", show_alert=True)
             return
-        # -----------------------------
         
-        # Планируем отправку через планировщик
-        # Планировщику передаем время с таймзоной MSK, он с ним работает корректно
         await schedule_broadcast_task(broadcast.id, schedule_time)
         
-        await callback.message.edit_text(f"✅ Рассылка #{broadcast.id} запланирована на {schedule_time.strftime('%Y-%m-%d %H:%M')}")
+        # --- ИЗМЕНЕНИЕ: Возвращаем меню вместо тупика ---
+        time_str = schedule_time.strftime('%Y-%m-%d %H:%M')
+        keyboard = get_broadcast_menu_keyboard()
+        await callback.message.edit_text(
+            f"✅ <b>Рассылка #{broadcast.id} запланирована на {time_str}</b>\n\n📢 Меню рассылки",
+            reply_markup=keyboard
+        )
+        
         await state.clear()
         
-        # Логируем действие
-        await log_admin_action(
-            session,
-            callback.from_user.id,
-            "broadcast_scheduled",
-            details={
-                "scheduled_time": schedule_time.isoformat(),
-                "broadcast_id": broadcast.id,
-                "has_text": 'text' in broadcast_data,
-                "has_media": any(key in broadcast_data for key in ['photo', 'video', 'document'])
-            }
-        )
+        await log_admin_action(session, callback.from_user.id, "broadcast_scheduled", broadcast.id)
         
     except Exception as e:
         print(f"Error in select_broadcast_time: {e}")
-        await callback.message.answer(f"❌ Произошла ошибка при планировании: {e}")
+        await callback.message.answer(f"❌ Ошибка: {e}")
         await callback.answer()
 
 
@@ -13652,30 +14105,23 @@ async def switch_to_manual_time_input(callback: CallbackQuery, state: FSMContext
 @admin_router.message(BroadcastState.waiting_for_manual_schedule_time)
 async def process_manual_time_input(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
     try:
-        # Парсим введенное время
         schedule_time = datetime.strptime(message.text, "%Y-%m-%d %H:%M")
-        
-        # Добавляем часовой пояс MSK
         schedule_time = schedule_time.replace(tzinfo=MSK)
         
-        # Проверяем, что время не в прошлом
         if schedule_time <= get_now_msk():
             await message.answer("❌ Время не может быть в прошлом")
             return
             
-        # Подготавливаем время для БД (UTC + Naive)
         schedule_time_db = strip_tz(to_utc(schedule_time))
         
-        # Получаем данные рассылки из состояния
         data = await state.get_data()
         broadcast_data = data.get('broadcast_data', {})
         
         if not broadcast_data:
-            await message.answer("❌ Данные рассылки устарели. Начните заново.")
+            await message.answer("❌ Данные устарели. Начните заново.")
             await state.clear()
             return
         
-        # Создаем рассылку через сервис
         service = BroadcastService(bot, session)
         broadcast = await service.create_broadcast(
             message_text=broadcast_data.get('text', ''),
@@ -13683,62 +14129,50 @@ async def process_manual_time_input(message: Message, state: FSMContext, session
             video_file_id=broadcast_data.get('video'),
             document_file_id=broadcast_data.get('document'),
             admin_id=message.from_user.id,
-            scheduled_time=schedule_time_db # <-- Передаем подготовленное время для БД
+            scheduled_time=schedule_time_db
         )
         
         if not broadcast:
-            await message.answer("❌ Ошибка при сохранении рассылки в БД.")
+            await message.answer("❌ Ошибка при сохранении.")
             return
         
-        # Планируем отправку через планировщик
         await schedule_broadcast_task(broadcast.id, schedule_time)
         
-        await message.answer(f"✅ Рассылка #{broadcast.id} запланирована на {schedule_time.strftime('%Y-%m-%d %H:%M')}")
-        await state.clear()
-        
-        # Логируем действие
-        await log_admin_action(
-            session,
-            message.from_user.id,
-            "broadcast_scheduled",
-            details={
-                "scheduled_time": schedule_time.isoformat(),
-                "broadcast_id": broadcast.id,
-                "has_text": 'text' in broadcast_data,
-                "has_media": any(key in broadcast_data for key in ['photo', 'video', 'document'])
-            }
+        # --- ИЗМЕНЕНИЕ: Возвращаем меню (отправляем новое сообщение, так как это message handler) ---
+        time_str = schedule_time.strftime('%Y-%m-%d %H:%M')
+        keyboard = get_broadcast_menu_keyboard()
+        await message.answer(
+            f"✅ <b>Рассылка #{broadcast.id} запланирована на {time_str}</b>\n\n📢 Меню рассылки",
+            reply_markup=keyboard
         )
         
+        await state.clear()
+        
     except ValueError:
-        await message.answer("❌ Неверный формат времени. Используйте ГГГГ-ММ-ДД ЧЧ:ММ")
+        await message.answer("❌ Неверный формат времени.")
 
 
-# --- ОБРАБОТЧИК ОШИБОК ВВОДА (С ЗАЩИТОЙ ОТ КОМАНД) ---
 @admin_router.message(BroadcastState.waiting_for_schedule_time, ~Command(commands=["start", "admin"]))
 async def process_schedule_time(message: Message, state: FSMContext, session: AsyncSession):
-    """
-    Обработчик, который ловит любой текст (НЕ команды), когда пользователь 
-    находится в меню выбора времени (где кнопки).
-    """
-    # Удаляем сообщение пользователя, чтобы не засорять чат
     try:
         await message.delete()
     except:
         pass
-        
-    # Отправляем предупреждение
-    await message.answer("❌ Пожалуйста, используйте кнопки выше для выбора времени (или нажмите 'Ввести вручную').")
+    await message.answer("❌ Пожалуйста, используйте кнопки.")
 
+
+# ==============================================================================
+#  ИСТОРИЯ И ОТЛОЖЕННЫЕ (КНОПКИ)
+# ==============================================================================
 
 @admin_router.callback_query(F.data.startswith("admin_broadcast_history_"))
 async def show_broadcast_history(callback: CallbackQuery, session: AsyncSession):
     try:
-        page_str = callback.data.split("_")[-1]
-        page = int(page_str)
+        page = int(callback.data.split("_")[-1])
     except (ValueError, IndexError):
         page = 1
         
-    page_size = 10
+    page_size = 8
     offset = (page - 1) * page_size
     
     result = await session.execute(
@@ -13748,100 +14182,172 @@ async def show_broadcast_history(callback: CallbackQuery, session: AsyncSession)
     )
     broadcasts = result.scalars().all()
     
-    result_count = await session.execute(
-        select(func.count(Broadcast.id))
-    )
-    # Безопасное получение числа
+    result_count = await session.execute(select(func.count(Broadcast.id)))
     total_count = int(result_count.scalar() or 0)
     
-    if not broadcasts:
-        await callback.message.edit_text("📝 Нет истории рассылок")
+    if not broadcasts and total_count == 0:
+        await callback.message.edit_text("📝 Нет истории рассылок", reply_markup=get_back_to_broadcast_menu_kb())
         await callback.answer()
         return
     
-    message_text = "📝 История рассылок:\n\n"
-    for bc in broadcasts:
-        bc_text = bc.message_text or ""
-        message_preview = bc_text[:30] + "..." if len(bc_text) > 30 else bc_text
-        created_str = bc.created_at.strftime('%Y-%m-%d %H:%M') if bc.created_at else "N/A"
-        message_text += f"📨 [{created_str}] \"{message_preview}\" - {bc.status} - {bc.sent_count}/{bc.total_count}\n"
-    
-    keyboard = get_broadcast_history_pagination_keyboard(page, total_count)
-    await callback.message.edit_text(message_text, reply_markup=keyboard)
+    keyboard = get_broadcast_list_keyboard(broadcasts, page, total_count, page_size, is_scheduled=False)
+    await callback.message.edit_text("📝 <b>История рассылок</b>\nВыберите рассылку для просмотра:", reply_markup=keyboard)
     await callback.answer()
 
 
 @admin_router.callback_query(F.data.startswith("admin_scheduled_broadcasts_"))
 async def show_scheduled_broadcasts(callback: CallbackQuery, session: AsyncSession):
     try:
-        page_str = callback.data.split("_")[-1]
-        page = int(page_str)
+        page = int(callback.data.split("_")[-1])
     except (ValueError, IndexError):
         page = 1
         
-    page_size = 10
+    page_size = 8
     offset = (page - 1) * page_size
     
+    # Ищем в таблице Broadcast, где время задано и статус pending
     result = await session.execute(
-        select(ScheduledBroadcast)
-        .order_by(ScheduledBroadcast.scheduled_time.asc())
+        select(Broadcast)
+        .where(Broadcast.scheduled_time.isnot(None))
+        .where(Broadcast.status == "pending")
+        .order_by(Broadcast.scheduled_time.asc())
         .offset(offset).limit(page_size)
     )
-    scheduled_broadcasts = result.scalars().all()
+    scheduled = result.scalars().all()
     
     result_count = await session.execute(
-        select(func.count(ScheduledBroadcast.id))
+        select(func.count(Broadcast.id))
+        .where(Broadcast.scheduled_time.isnot(None))
+        .where(Broadcast.status == "pending")
     )
     total_count = int(result_count.scalar() or 0)
     
-    if not scheduled_broadcasts:
-        await callback.message.edit_text("⏰ Нет запланированных рассылок")
+    if not scheduled and total_count == 0:
+        await callback.message.edit_text("⏰ Нет запланированных рассылок", reply_markup=get_back_to_broadcast_menu_kb())
         await callback.answer()
         return
     
-    message_text = "⏰ Отложенные рассылки:\n\n"
-    for sb in scheduled_broadcasts:
-        sb_text = sb.message_text or ""
-        message_preview = sb_text[:30] + "..." if len(sb_text) > 30 else sb_text
-        sched_time = sb.scheduled_time.strftime('%Y-%m-%d %H:%M') if sb.scheduled_time else "N/A"
-        message_text += f"⏰ [{sched_time}] \"{message_preview}\" - статус: {sb.status}\n"
-    
-    keyboard = get_scheduled_broadcasts_pagination_keyboard(page, total_count)
-    await callback.message.edit_text(message_text, reply_markup=keyboard)
+    keyboard = get_broadcast_list_keyboard(scheduled, page, total_count, page_size, is_scheduled=True)
+    await callback.message.edit_text("⏰ <b>Отложенные рассылки</b>\nВыберите рассылку для управления:", reply_markup=keyboard)
     await callback.answer()
 
 
-@admin_router.callback_query(lambda c: c.data.startswith("admin_broadcast_detail_"))
+# --- ДЕТАЛИ ИСТОРИИ ---
+@admin_router.callback_query(F.data.startswith("admin_broadcast_detail_"))
 async def show_broadcast_detail(callback: CallbackQuery, session: AsyncSession):
     try:
         broadcast_id = int(callback.data.split("_")[-1])
-    except (ValueError, IndexError):
-        await callback.answer("Ошибка ID рассылки", show_alert=True)
+    except:
+        await callback.answer("Ошибка ID")
         return
     
     broadcast = await session.get(Broadcast, broadcast_id)
     if not broadcast:
-        await callback.answer("❌ Рассылка не найдена", show_alert=True)
+        await callback.answer("Рассылка не найдена", show_alert=True)
         return
     
-    created_str = broadcast.created_at.strftime('%Y-%m-%d %H:%M') if broadcast.created_at else "N/A"
+    created_str = broadcast.created_at.strftime('%d.%m.%Y %H:%M') if broadcast.created_at else "N/A"
     
-    message_text = f"""
-📋 Подробная информация о рассылке #{broadcast_id}:
-Дата создания: {created_str}
-Статус: {broadcast.status}
-Отправлено: {broadcast.sent_count}
-Всего: {broadcast.total_count}
-Провалено: {broadcast.failed_count}
-Заблокировано: {broadcast.blocked_count}
+    info_text = (
+        f"📝 <b>Рассылка #{broadcast.id}</b>\n"
+        f"📅 Дата: {created_str}\n"
+        f"📊 Статус: {broadcast.status}\n"
+        f"📨 Отправлено: {broadcast.sent_count}/{broadcast.total_count}\n\n"
+        f"📄 <b>Сообщение:</b>\n{broadcast.message_text}"
+    )
+    
+    await callback.message.edit_text(info_text, reply_markup=get_broadcast_detail_keyboard(broadcast_id))
+    await callback.answer()
 
-Текст сообщения:
-{broadcast.message_text}
-    """.strip()
+
+# --- ДЕТАЛИ ОТЛОЖЕННОЙ ---
+@admin_router.callback_query(F.data.startswith("admin_scheduled_detail_"))
+async def show_scheduled_detail(callback: CallbackQuery, session: AsyncSession):
+    try:
+        broadcast_id = int(callback.data.split("_")[-1])
+    except:
+        await callback.answer("Ошибка ID")
+        return
     
-    keyboard = get_broadcast_detail_actions_keyboard(broadcast_id)
-    await callback.message.edit_text(message_text, reply_markup=keyboard)
-    await callback.answer()=== ./handlers/admin/stats_handlers.py ===
+    broadcast = await session.get(Broadcast, broadcast_id)
+    if not broadcast:
+        await callback.answer("Рассылка не найдена", show_alert=True)
+        return
+    
+    sched_str = broadcast.scheduled_time.strftime('%d.%m.%Y %H:%M') if broadcast.scheduled_time else "N/A"
+    
+    info_text = (
+        f"⏰ <b>Отложенная рассылка #{broadcast.id}</b>\n"
+        f"📅 Отправка: {sched_str}\n"
+        f"📊 Статус: {broadcast.status}\n\n"
+        f"📄 <b>Сообщение:</b>\n{broadcast.message_text}"
+    )
+    
+    await callback.message.edit_text(info_text, reply_markup=get_scheduled_detail_keyboard(broadcast_id))
+    await callback.answer()
+
+
+# --- ОТПРАВИТЬ ОТЛОЖЕННУЮ ПРЯМО СЕЙЧАС ---
+@admin_router.callback_query(F.data.startswith("admin_force_send_scheduled_"))
+async def force_send_scheduled_broadcast(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    try:
+        broadcast_id = int(callback.data.split("_")[-1])
+        
+        broadcast = await session.get(Broadcast, broadcast_id)
+        if not broadcast:
+            await callback.answer("Рассылка не найдена", show_alert=True)
+            return
+
+        # Удаляем задачу из планировщика
+        from core.tools.broadcast_scheduler import broadcast_scheduler
+        job_id = f"broadcast_{broadcast_id}"
+        if broadcast_scheduler.get_job(job_id):
+            broadcast_scheduler.remove_job(job_id)
+            
+        # Отправляем немедленно
+        service = BroadcastService(bot, session)
+        await callback.message.edit_text("⏳ Начинаю отправку...")
+        
+        success = await service.send_broadcast(broadcast_id)
+        
+        if success:
+            # --- ИЗМЕНЕНИЕ: Возвращаем меню вместо тупика ---
+            keyboard = get_broadcast_menu_keyboard()
+            await callback.message.edit_text(
+                f"✅ <b>Рассылка #{broadcast_id} успешно запущена вне очереди!</b>\n\n📢 Меню рассылки",
+                reply_markup=keyboard
+            )
+            await log_admin_action(session, callback.from_user.id, "broadcast_force_sent", broadcast_id)
+        else:
+            await callback.message.edit_text("❌ Ошибка при запуске рассылки.")
+            
+    except Exception as e:
+        print(f"Error force sending scheduled: {e}")
+        await callback.answer("Ошибка запуска", show_alert=True)
+
+
+# --- УДАЛЕНИЕ ОТЛОЖЕННОЙ ---
+@admin_router.callback_query(F.data.startswith("admin_delete_scheduled_"))
+async def delete_scheduled_broadcast(callback: CallbackQuery, session: AsyncSession):
+    try:
+        broadcast_id = int(callback.data.split("_")[-1])
+        
+        # 1. Удаляем задачу из планировщика
+        from core.tools.broadcast_scheduler import broadcast_scheduler
+        job_id = f"broadcast_{broadcast_id}"
+        if broadcast_scheduler.get_job(job_id):
+            broadcast_scheduler.remove_job(job_id)
+            
+        # 2. Удаляем из БД
+        stmt = delete(Broadcast).where(Broadcast.id == broadcast_id)
+        await session.execute(stmt)
+        
+        await callback.answer("🗑 Рассылка удалена", show_alert=True)
+        await show_scheduled_broadcasts(callback, session)
+        
+    except Exception as e:
+        print(f"Error deleting scheduled: {e}")
+        await callback.answer("Ошибка удаления", show_alert=True)=== ./handlers/admin/stats_handlers.py ===
 from aiogram import F
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -14466,11 +14972,16 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
             await bot.forward_message(chat_id=sp['id'], from_chat_id=main_ch['id'], message_id=msg.message_id)
         except: pass
 
-    # 5. Запуск планировщика
+    # 5. Запуск планировщика (С ГАРАНТИЕЙ ЗАПУСКА)
     try:
         scheduler.add_job(
-            finish_giveaway_task, "date", run_date=finish_dt_utc, 
-            kwargs={"giveaway_id": gw_id}, id=f"gw_{gw_id}", replace_existing=True
+            finish_giveaway_task, 
+            "date", 
+            run_date=finish_dt_utc, 
+            kwargs={"giveaway_id": gw_id}, 
+            id=f"gw_{gw_id}", 
+            replace_existing=True,
+            misfire_grace_time=None  # <--- ВАЖНО: Выполнить, даже если пропустили время
         )
     except Exception as e:
         logger.error(f"Scheduler error: {e}")
@@ -14484,7 +14995,7 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
     # Предупреждение о безопасности
     warning_text = (
         "\n\n⚠️ <b>Важно:</b> Если вы отредактируете пост в канале вручную (измените условия или приз), "
-        "бот об этом не узнает. Информация в базе данных останется старой. Если нужно изменить текст то делайте это в личном кабинете"
+        "бот об этом не узнает. Информация в базе данных останется старой."
     )
 
     await call.message.answer(
@@ -15455,6 +15966,8 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from redis.asyncio import Redis
+from config import config
 
 from database.models.participant import Participant
 from database.models.giveaway import Giveaway
@@ -15473,6 +15986,9 @@ from core.services.ref_service import create_ref_link
 from core.services.checker_service import is_user_subscribed
 
 router = Router()
+
+# Инициализация Redis для распределенной блокировки
+redis = Redis.from_url(config.REDIS_URL)
 
 class JoinState(StatesGroup):
     captcha = State()
@@ -15505,6 +16021,7 @@ async def try_join_giveaway(
     if user.id == gw.owner_id:
         return await message.answer("⚠️ Вы организатор этого розыгрыша.")
 
+    # Проверяем, не участвует ли пользователь уже, используя уникальный индекс
     existing_stmt = select(Participant).where(
         Participant.user_id == user.id,
         Participant.giveaway_id == gw_id
@@ -15528,21 +16045,52 @@ async def try_join_giveaway(
         except Exception: pass
         return
 
-    # Сохраняем реферала в БД (надежно)
-    if referrer_id:
-        await add_pending_referral(session, user.id, referrer_id, gw_id)
+    # Используем Redis Lock для предотвращения race condition при регистрации
+    lock_key = f"join_lock:{gw_id}:{user.id}"
+    lock = redis.lock(lock_key, timeout=10, blocking_timeout=5)
     
-    await state.update_data(gw_id=gw_id)
+    try:
+        # Пытаемся получить блокировку
+        acquired = await lock.acquire(blocking=False)
+        if not acquired:
+            return await message.answer("⏳ Пожалуйста, подождите немного и попробуйте снова.")
+        
+        # Повторная проверка на случай, если пользователь успел зарегистрироваться
+        # пока мы ждали блокировку
+        existing = await session.scalar(existing_stmt)
+        if existing:
+            text = (
+                f"👋 <b>Ты уже в игре!</b>\n\n"
+                f"🎫 Твой билет: <code>{existing.ticket_code}</code>\n"
+                f"⚡️ Шансов на победу: <b>{existing.tickets_count}</b>"
+            )
+            if gw.is_referral_enabled:
+                token = await create_ref_link(user.id)
+                ref_link = f"https://t.me/{bot_username}?start=gw_{gw_id}_{token}"
+                text += f"\n\n🔗 Твоя реф. ссылка:\n<code>{ref_link}</code>"
+            
+            try: await message.answer(text, disable_web_page_preview=True)
+            except Exception: pass
+            return
 
-    if gw.is_captcha_enabled:
-        await state.set_state(JoinState.captcha)
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🤖 Я не робот", callback_data="captcha_solved")]
-        ])
-        await message.answer("🛡 <b>Проверка на бота</b>\nНажмите кнопку ниже.", reply_markup=kb)
-        return
+        # Сохраняем реферала в БД (надежно)
+        if referrer_id:
+            await add_pending_referral(session, user.id, referrer_id, gw_id)
+        
+        await state.update_data(gw_id=gw_id)
 
-    await check_subscriptions_step(message, user.id, gw, session, bot, state)
+        if gw.is_captcha_enabled:
+            await state.set_state(JoinState.captcha)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🤖 Я не робот", callback_data="captcha_solved")]
+            ])
+            await message.answer("🛡 <b>Проверка на бота</b>\nНажмите кнопку ниже.", reply_markup=kb)
+            return
+
+        await check_subscriptions_step(message, user.id, gw, session, bot, state)
+    finally:
+        # В любом случае освобождаем блокировку
+        await lock.release()
 
 @router.callback_query(JoinState.captcha, F.data == "captcha_solved")
 async def captcha_solved(call: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
@@ -15553,7 +16101,7 @@ async def captcha_solved(call: CallbackQuery, state: FSMContext, session: AsyncS
     if not gw:
         await call.answer("Ошибка")
         return await state.clear()
-
+    
     await call.message.delete()
     await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state)
 

@@ -1,7 +1,7 @@
 import logging
 from typing import List, Dict, Optional
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from redis.asyncio import Redis
 from config import config
 
@@ -31,6 +31,10 @@ class ChannelService:
                 'invite_link': chat.invite_link,
                 'type': chat.type
             }
+        except TelegramForbiddenError:
+            # Бот не имеет доступа к каналу
+            logger.error(f"Bot has no access to chat {chat_id}")
+            return None
         except TelegramBadRequest as e:
             logger.error(f"Error getting chat info for {chat_id}: {e}")
             return None
@@ -40,9 +44,9 @@ class ChannelService:
 
     @staticmethod
     async def check_user_subscriptions(
-        bot: Bot, 
-        user_id: int, 
-        main_channel_id: int, 
+        bot: Bot,
+        user_id: int,
+        main_channel_id: int,
         required_channels: List = None,
         force_check: bool = False
     ) -> Dict[str, bool]:
@@ -119,9 +123,32 @@ class ChannelService:
         try:
             member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
             return member.status
+        except TelegramForbiddenError:
+            # Бот не имеет прав доступа к каналу
+            logger.error(f"Bot has no access to get member status (User: {user_id}, Chat: {chat_id})")
+            return None
         except TelegramBadRequest as e:
             logger.error(f"Error getting chat member status (User: {user_id}, Chat: {chat_id}): {e}")
             return None
         except Exception as e:
             logger.error(f"Unexpected error getting chat member status (User: {user_id}, Chat: {chat_id}): {e}")
             return None
+
+    @staticmethod
+    async def verify_bot_admin_rights(bot: Bot, chat_id: int) -> bool:
+        """
+        Проверяет, является ли бот администратором канала
+        """
+        try:
+            member = await bot.get_chat_member(chat_id=chat_id, user_id=bot.id)
+            return member.status in ['creator', 'administrator']
+        except TelegramForbiddenError:
+            # Бот не имеет доступа к каналу
+            logger.error(f"Bot has no access to check admin rights in chat {chat_id}")
+            return False
+        except TelegramBadRequest as e:
+            logger.error(f"Error checking bot admin rights in chat {chat_id}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error checking bot admin rights in chat {chat_id}: {e}")
+            return False

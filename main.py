@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.redis import RedisStorage
@@ -8,8 +9,8 @@ from redis.asyncio import Redis
 
 from config import config
 from database import engine, Base
-from core.tools.scheduler import start_scheduler, scheduler
-from core.tools.broadcast_scheduler import start_broadcast_scheduler, broadcast_scheduler
+from core.tools.scheduler import start_scheduler, scheduler, shutdown_scheduler
+from core.tools.broadcast_scheduler import start_broadcast_scheduler, broadcast_scheduler, shutdown_broadcast_scheduler
 from core.logic.game_actions import update_active_giveaways_task, process_expired_giveaways
 from services.admin_broadcast_service import recover_stuck_broadcasts
 
@@ -34,6 +35,29 @@ class UserIdMiddleware(BaseMiddleware):
         user_id = getattr(event.from_user, 'id', 'unknown')
         logger.info("Update from user_id=%s (bot_id=%s)", user_id, data['bot'].id)
         return await handler(event, data)
+
+# Глобальная переменная для отслеживания состояния остановки
+stop_event = asyncio.Event()
+
+async def graceful_shutdown(signum=None, frame=None):
+    """Обработчик корректного завершения работы"""
+    if signum:
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+    
+    stop_event.set()
+    
+    # Останавливаем планировщики
+    try:
+        await shutdown_scheduler()
+        logger.info("Scheduler shutdown completed")
+    except Exception as e:
+        logger.error(f"Error shutting down scheduler: {e}")
+    
+    try:
+        await shutdown_broadcast_scheduler()
+        logger.info("Broadcast scheduler shutdown completed")
+    except Exception as e:
+        logger.error(f"Error shutting down broadcast scheduler: {e}")
 
 async def main():
     logging.basicConfig(level=logging.INFO)
@@ -84,16 +108,23 @@ async def main():
     dp.message.middleware(UserIdMiddleware())
     dp.callback_query.middleware(UserIdMiddleware())
 
+    # Регистрация обработчиков сигналов для корректного завершения
+    signal.signal(signal.SIGTERM, lambda s, f: asyncio.create_task(graceful_shutdown(s, f)))
+    signal.signal(signal.SIGINT, lambda s, f: asyncio.create_task(graceful_shutdown(s, f)))
+
     try:
         # --- ВАЖНОЕ ИЗМЕНЕНИЕ: drop_pending_updates=False ---
         # Мы теперь обрабатываем очередь, но Middleware отсеет старый мусор,
         # оставив только платежи и совсем недавние сообщения.
         await bot.delete_webhook(drop_pending_updates=False)
         
-        await dp.start_polling(bot)
+        # Запуск с ожиданием сигнала остановки
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), stop_event=stop_event)
     finally:
+        logger.info("Shutting down bot...")
         await bot.session.close()
         await redis.aclose()
+        logger.info("Bot shutdown completed")
 
 if __name__ == "__main__":
     asyncio.run(main())

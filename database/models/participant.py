@@ -1,6 +1,6 @@
 # database/models/participant.py
 from datetime import datetime
-from sqlalchemy import BigInteger, ForeignKey, DateTime, Integer, String
+from sqlalchemy import BigInteger, ForeignKey, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
@@ -9,6 +9,12 @@ class Participant(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), primary_key=True)
     giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), primary_key=True)
+    
+    # Добавляем уникальный индекс для предотвращения дубликатов
+    __table_args__ = (
+        # Уникальный индекс для предотвращения дубликатов участников в одном розыгрыше
+        UniqueConstraint('user_id', 'giveaway_id', name='unique_user_giveaway'),
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Кол-во шансов (билетов)
