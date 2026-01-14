@@ -54,8 +54,14 @@ async def try_join_giveaway(
         user = message_or_call.from_user
 
     gw = await get_giveaway_by_id(session, gw_id)
-    if not gw or gw.status != 'active':
-        return await message.answer("😔 <b>Увы, этот розыгрыш уже завершен.</b>")
+    
+    # 1. Если розыгрыш удален из базы
+    if not gw:
+        return await message.answer("❌ <b>Этот розыгрыш был удален организатором.</b>")
+        
+    # 2. Если розыгрыш существует, но время вышло
+    if gw.status != 'active':
+        return await message.answer("🏁 <b>Этот розыгрыш уже завершен. Победители определены.</b>")
 
     if user.id == gw.owner_id:
         return await message.answer("⚠️ Вы организатор этого розыгрыша.")
@@ -144,21 +150,44 @@ async def captcha_solved(call: CallbackQuery, state: FSMContext, session: AsyncS
     await call.message.delete()
     await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state)
 
+# ... (импорты остаются прежними) ...
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest # Добавь в импорты
+
 async def check_subscriptions_step(message: Message, user_id: int, gw: Giveaway, session: AsyncSession, bot: Bot, state: FSMContext, force_check: bool = False):
     reqs = await get_required_channels(session, gw.id)
     
     channels_status = []
     all_subscribed = True
+    critical_error = None # Переменная для хранения текста ошибки доступа
+
+    # --- Вспомогательная функция для проверки прав бота ---
+    async def check_bot_access(channel_id: int, channel_title: str = "канал"):
+        try:
+            # Проверяем, видит ли бот сам себя в этом канале
+            # Если бота кикнули, этот метод вызовет TelegramForbiddenError
+            member = await bot.get_chat_member(channel_id, bot.id)
+            if member.status not in ("administrator", "creator"):
+                return f"⚠️ <b>Ошибка доступа!</b>\nБот перестал быть администратором в канале (ID: {channel_id}).\nПожалуйста, сообщите организатору."
+            return None
+        except (TelegramForbiddenError, TelegramBadRequest):
+            return f"⚠️ <b>Ошибка доступа!</b>\nБот был удален или заблокирован в канале (ID: {channel_id}).\nРозыгрыш приостановлен."
+    # -----------------------------------------------------
 
     # 1. Основной канал
     try:
         is_sub = await is_user_subscribed(bot, gw.channel_id, user_id, force_check=force_check)
         
+        # ЕСЛИ ПОДПИСКИ НЕТ -> ПРОВЕРЯЕМ, ЖИВ ЛИ БОТ
+        if not is_sub:
+            error = await check_bot_access(gw.channel_id)
+            if error:
+                critical_error = error
+        
+        # Получаем инфо для красивой кнопки
         from core.services.channel_service import ChannelService
         chat_info = await ChannelService.get_chat_info_safe(bot, gw.channel_id)
         
         if chat_info:
-            # Безопасное получение ссылки
             link = chat_info['invite_link'] or (f"https://t.me/{chat_info['username']}" if chat_info['username'] else None)
             
             channels_status.append({
@@ -169,26 +198,39 @@ async def check_subscriptions_step(message: Message, user_id: int, gw: Giveaway,
             if not is_sub: all_subscribed = False
             
     except Exception as e:
-        # Логируем ошибку получения информации о чате
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Error getting chat info for channel {gw.channel_id}: {e}")
-        pass
+        # Если совсем всё плохо (например, канал удален)
+        critical_error = f"⚠️ Канал розыгрыша недоступен или удален.\nОшибка: {e}"
 
-    # 2. Спонсоры
-    for r in reqs:
-        is_sub = await is_user_subscribed(bot, r.channel_id, user_id, force_check=force_check)
-        
-        # У спонсоров ссылка хранится в БД, но проверим на None
-        link = r.channel_link if r.channel_link and len(r.channel_link) > 5 else None
-        
-        channels_status.append({
-            'title': r.channel_title,
-            'link': link,
-            'is_subscribed': is_sub
-        })
-        if not is_sub: all_subscribed = False
+    # Если уже нашли критическую ошибку - прерываем проверку спонсоров
+    if not critical_error:
+        # 2. Спонсоры
+        for r in reqs:
+            is_sub = await is_user_subscribed(bot, r.channel_id, user_id, force_check=force_check)
+            
+            # ЕСЛИ ПОДПИСКИ НЕТ -> ПРОВЕРЯЕМ, ЖИВ ЛИ БОТ
+            if not is_sub:
+                error = await check_bot_access(r.channel_id)
+                if error:
+                    critical_error = error
+                    break # Прерываем цикл, нет смысла проверять дальше
 
+            link = r.channel_link if r.channel_link and len(r.channel_link) > 5 else None
+            
+            channels_status.append({
+                'title': r.channel_title,
+                'link': link,
+                'is_subscribed': is_sub
+            })
+            if not is_sub: all_subscribed = False
+
+    # --- ОБРАБОТКА РЕЗУЛЬТАТОВ ---
+
+    # Сценарий А: Бот потерял доступ (Критическая ошибка)
+    if critical_error:
+        await message.answer(critical_error)
+        return # Останавливаем процесс регистрации
+
+    # Сценарий Б: Пользователь не подписан (Обычный процесс)
     if not all_subscribed:
         await state.set_state(JoinState.subscribing)
         text = "🔒 <b>Для участия выполните задания:</b>\n(Нажмите на кнопки, подпишитесь и проверьте)"
@@ -206,22 +248,16 @@ async def check_subscriptions_step(message: Message, user_id: int, gw: Giveaway,
             )
             if not result:
                 await message.answer(text, reply_markup=kb)
-        except Exception as e:
-            # Логируем ошибку редактирования сообщения
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error editing message: {e}")
+        except Exception:
             await message.answer(text, reply_markup=kb)
+            
+    # Сценарий В: Все отлично
     else:
+        # ... (код удаления сообщения и finalize_registration остается прежним) ...
         from core.services.message_service import MessageHandler
         try:
             await MessageHandler.safe_delete_message(message.bot, message.chat.id, message.message_id)
-        except Exception as e:
-            # Логируем ошибку удаления сообщения
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error deleting message: {e}")
-            pass
+        except: pass
         
         await finalize_registration(message, user_id, gw, session, bot, state)
 

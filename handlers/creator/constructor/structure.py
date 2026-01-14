@@ -5,7 +5,8 @@ from aiogram.exceptions import TelegramBadRequest
 class ConstructorState(StatesGroup):
     init = State()
     editing_content = State()
-    confirm_short_text = State() 
+    editing_short_description = State()  # Новое состояние для ввода краткого описания
+    confirm_short_text = State()
     adding_channel = State()
     adding_channel_link = State()
     editing_winners = State()  # Новое состояние для ввода победителей вручную

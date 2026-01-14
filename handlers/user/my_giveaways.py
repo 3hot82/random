@@ -1,10 +1,15 @@
 import logging
+import csv
+import io
 from aiogram import Router, types, Bot, F
+from aiogram.types import BufferedInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
 
 from database.requests.giveaway_repo import get_giveaways_by_owner, get_giveaway_by_id, count_giveaways_by_status
+from database.requests.participant_repo import get_participants_for_export
 from database.models.giveaway import Giveaway
+from database.models.user import User
 from database.models.winner import Winner
 from database.models.participant import Participant
 from database.models.required_channel import GiveawayRequiredChannel
@@ -61,7 +66,7 @@ async def manage_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
     if gw.owner_id != call.from_user.id:
         return await call.answer("⛔ Вы не являетесь создателем этого розыгрыша!", show_alert=True)
     
-    stats_info = f"🏆 Приз: {gw.prize_text}\n📅 Финиш: {gw.finish_time.strftime('%d.%m %H:%M')}"
+    stats_info = f"🎁 Розыгрыш: {gw.short_description}\n� Приз: {gw.prize_text}\n📅 Финиш: {gw.finish_time.strftime('%d.%m %H:%M')}"
     
     if gw.status == "active":
         await call.message.edit_text(f"🟢 <b>Активный розыгрыш #{gw.id}</b>\n\n{stats_info}", reply_markup=active_gw_manage_kb(gw.id))
@@ -173,11 +178,64 @@ async def delete_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
         await session.execute(delete(GiveawayRequiredChannel).where(GiveawayRequiredChannel.giveaway_id == gw_id))
         # Удаляем сам розыгрыш
         await session.delete(gw)
-        await session.commit()
+        
+        # Используем flush вместо commit, так как мы внутри middleware транзакции
+        await session.flush()
+        
         await call.answer("🗑 Розыгрыш удален.", show_alert=True)
+        
+        # Показываем список только если удаление прошло успешно
+        await show_gw_hub(call, session)
+        
     except Exception as e:
         logger.error(f"DB Delete failed for GW {gw_id}: {e}")
-        await session.rollback()
+        # Не делаем rollback вручную, middleware сделает это если мы пробросим ошибку,
+        # но здесь мы хотим ответить пользователю, поэтому просто логируем и отвечаем.
+        # Сессия может быть "грязной", поэтому лучше не продолжать работу с ней в этом хендлере.
         await call.answer("❌ Ошибка БД при удалении.", show_alert=True)
-        
-    await show_gw_hub(call, session)
+
+# 4. ЭКСПОРТ УЧАСТНИКОВ
+@router.callback_query(F.data.startswith("gw_act:export:"))
+async def export_participants(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    from datetime import datetime
+    gw_id = int(call.data.split(":")[2])
+    
+    # 1. Проверка Premium (обязательно!)
+    user = await session.get(User, call.from_user.id)
+    if not user.is_premium or (user.premium_until and user.premium_until < datetime.utcnow()):
+        # Проверяем, является ли пользователь администратором
+        from filters.admin_filter import IsAdmin
+        is_admin = await IsAdmin().__call__(call)
+        if not is_admin:
+            return await call.answer("🔒 Доступно только в Premium подписке!", show_alert=True)
+
+    # 2. Получаем данные
+    participants = await get_participants_for_export(session, gw_id)
+    
+    if not participants:
+        return await call.answer("Участников пока нет.", show_alert=True)
+
+    await call.answer("⏳ Формирую файл...", show_alert=False)
+
+    # 3. Создаем CSV в памяти (используем StringIO)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Заголовки
+    writer.writerow(['User ID', 'Username', 'Full Name', 'Join Date (UTC)'])
+    
+    # Данные
+    for p in participants:
+        # p[0]=id, p[1]=date, p[2]=username, p[3]=fullname
+        username = f"@{p[2]}" if p[2] else "N/A"
+        writer.writerow([p[0], username, p[3], p[1].strftime("%Y-%m-%d %H:%M:%S")])
+    
+    # Перематываем в начало и конвертируем в байты для отправки
+    output.seek(0)
+    document = BufferedInputFile(output.getvalue().encode('utf-8'), filename=f"participants_gw_{gw_id}.csv")
+    
+    await bot.send_document(
+        chat_id=call.from_user.id,
+        document=document,
+        caption=f"📊 <b>Экспорт участников</b>\nВсего записей: {len(participants)}"
+    )

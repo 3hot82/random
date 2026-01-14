@@ -38,7 +38,8 @@ def giveaways_list_kb(giveaways: list[Giveaway], status: str) -> InlineKeyboardB
     
     for gw in giveaways:
         icon = "🟢" if status == "active" else "⚫️"
-        name = gw.prize_text[:25].replace("\n", " ")
+        # Используем short_description если доступно, иначе первые 25 символов prize_text
+        name = (gw.short_description or gw.prize_text)[:25].replace("\n", " ")
         builder.button(text=f"{icon} {name}...", callback_data=f"gw_manage:{gw.id}")
     
     builder.button(text="🔙 Назад", callback_data="my_giveaways_hub")
@@ -49,6 +50,7 @@ def giveaways_list_kb(giveaways: list[Giveaway], status: str) -> InlineKeyboardB
 def active_gw_manage_kb(gw_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🔄 Повторная публикация", callback_data=f"gw_act:repost:{gw_id}")
+    builder.button(text="📊 Скачать базу (CSV)", callback_data=f"gw_act:export:{gw_id}")
     builder.button(text="🛑 Завершить досрочно", callback_data=f"gw_act:finish:{gw_id}")
     builder.button(text="🗑 Удалить", callback_data=f"gw_act:delete:{gw_id}")
     builder.button(text="🔙 Назад", callback_data="gw_list:active")
@@ -60,15 +62,23 @@ def finished_gw_manage_kb(gw_id: int, results_link: str = None) -> InlineKeyboar
     builder = InlineKeyboardBuilder()
     if results_link:
         builder.button(text="🔗 Перейти к посту", url=results_link)
+    builder.button(text="📊 Скачать базу (CSV)", callback_data=f"gw_act:export:{gw_id}")
     builder.button(text="🗑 Удалить из базы", callback_data=f"gw_act:delete:{gw_id}")
     builder.button(text="🔙 Назад", callback_data="gw_list:finished")
     builder.adjust(1)
     return builder.as_markup()
 
 # --- МАГАЗИН (PREMIUM) ---
-def premium_shop_kb() -> InlineKeyboardMarkup:
+def premium_shop_kb(is_premium: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🛡 Купить Капчу (50 ⭐️)", callback_data="buy_captcha")
+    
+    if is_premium:
+        builder.button(text="✅ Подписка активна", callback_data="premium_info")
+        # Можно добавить кнопку "Продлить"
+    else:
+        # Цена в звездах (XTR)
+        builder.button(text="💎 Купить Premium (250 ⭐️)", callback_data="buy_premium_sub")
+    
     builder.button(text="🔙 Назад", callback_data="cabinet_hub")
     builder.adjust(1)
     return builder.as_markup()

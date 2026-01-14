@@ -472,7 +472,8 @@ def giveaways_list_kb(giveaways: list[Giveaway], status: str) -> InlineKeyboardB
     
     for gw in giveaways:
         icon = "🟢" if status == "active" else "⚫️"
-        name = gw.prize_text[:25].replace("\n", " ")
+        # Используем short_description если доступно, иначе первые 25 символов prize_text
+        name = (gw.short_description or gw.prize_text)[:25].replace("\n", " ")
         builder.button(text=f"{icon} {name}...", callback_data=f"gw_manage:{gw.id}")
     
     builder.button(text="🔙 Назад", callback_data="my_giveaways_hub")
@@ -483,7 +484,8 @@ def giveaways_list_kb(giveaways: list[Giveaway], status: str) -> InlineKeyboardB
 def active_gw_manage_kb(gw_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🔄 Повторная публикация", callback_data=f"gw_act:repost:{gw_id}")
-    builder.button(text="🛑 Завершить досрочно", callback_data=f"gw_act:finish:{gw_id}")
+    builder.button(text="📊 Скачать базу (CSV)", callback_data=f"gw_act:export:{gw_id}")
+    builder.button(text="� Завершить досрочно", callback_data=f"gw_act:finish:{gw_id}")
     builder.button(text="🗑 Удалить", callback_data=f"gw_act:delete:{gw_id}")
     builder.button(text="🔙 Назад", callback_data="gw_list:active")
     builder.adjust(1)
@@ -500,9 +502,16 @@ def finished_gw_manage_kb(gw_id: int, results_link: str = None) -> InlineKeyboar
     return builder.as_markup()
 
 # --- МАГАЗИН (PREMIUM) ---
-def premium_shop_kb() -> InlineKeyboardMarkup:
+def premium_shop_kb(is_premium: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🛡 Купить Капчу (50 ⭐️)", callback_data="buy_captcha")
+    
+    if is_premium:
+        builder.button(text="✅ Подписка активна", callback_data="premium_info")
+        # Можно добавить кнопку "Продлить"
+    else:
+        # Цена в звездах (XTR)
+        builder.button(text="💎 Купить Premium (250 ⭐️)", callback_data="buy_premium_sub")
+    
     builder.button(text="🔙 Назад", callback_data="cabinet_hub")
     builder.adjust(1)
     return builder.as_markup()
@@ -534,13 +543,20 @@ from database.models.channel import Channel
 def constructor_main_kb(
     time_str: str, winners: int,
     ref_req: int, # Если 0 - выкл, иначе кол-во друзей
-    is_captcha: bool, has_main_channel: bool, sponsors_count: int
+    is_captcha: bool, has_main_channel: bool, sponsors_count: int, is_participants_hidden: bool = False
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
-    main_text = "📢 Канал: Выбрать" if not has_main_channel else "📢 Канал: ✅ Выбран"
+    main_text = "📢 Канал/Чат: Выбрать" if not has_main_channel else "📢 Канал/Чат: ✅ Выбран"
     sponsor_text = f"🤝 Спонсоры: {sponsors_count}" if sponsors_count > 0 else "🤝 Спонсоры: Нет"
     builder.button(text=main_text, callback_data="constr_select_main")
+    # Показываем количество спонсоров с индикатором премиум-функции
+    if sponsors_count > 5:
+        sponsor_text = f"🤝 Спонсоры: {sponsors_count} 🌟"
+    elif sponsors_count > 0:
+        sponsor_text = f"🤝 Спонсоры: {sponsors_count}"
+    else:
+        sponsor_text = "🤝 Спонсоры: Нет"
     builder.button(text=sponsor_text, callback_data="constr_select_sponsors")
     
     builder.button(text=f"⏳ Итоги: {time_str}", callback_data="constr_time_menu")
@@ -552,14 +568,17 @@ def constructor_main_kb(
     cap_status = "ВКЛ" if is_captcha else "Выкл"
     builder.button(text=f"🛡 Капча: {cap_status}", callback_data="constr_toggle_cap")
     
+    hidden_participants_status = "ВКЛ" if is_participants_hidden else "Выкл"
+    builder.button(text=f"🕵️ Скрыть участников: {hidden_participants_status}", callback_data="constr_toggle_hidden_participants")
+    
     builder.button(text="✏️ Изменить Текст/Медиа", callback_data="constr_edit_content")
     builder.button(text="✅ ОПУБЛИКОВАТЬ", callback_data="constr_publish")
     
     # НОВАЯ КНОПКА ОТМЕНЫ
     builder.button(text="❌ Отмена", callback_data="cancel_creation")
     
-    # Сетка кнопок: 2, 2, 2, 1, 1, 1
-    builder.adjust(2, 2, 2, 1, 1, 1)
+    # Сетка кнопок: 2, 2, 2, 1, 1, 1, 1
+    builder.adjust(2, 2, 2, 1, 1, 1, 1)
     return builder.as_markup()
 
 def winners_selector_kb() -> InlineKeyboardMarkup:
@@ -596,9 +615,11 @@ def channel_selection_kb(channels: list[Channel], mode: str, selected_ids: list[
     
     # Кнопки каналов
     for ch in channels:
+        # Определяем иконку в зависимости от типа чата
         icon = "✅" if mode == "main" and ch.channel_id in selected_ids else ("☑️" if ch.channel_id in selected_ids else "⬜")
+        chat_icon = "📢" if ch.type == 'channel' else "💬"
         cb = f"constr_set_ch:{mode}:{ch.channel_id}"
-        builder.button(text=f"{icon} {ch.title}", callback_data=cb)
+        builder.button(text=f"{icon} {chat_icon} {ch.title}", callback_data=cb)
     
     # Управление
     builder.button(text="➕ Добавить новый канал", callback_data="add_new_channel_constr")
@@ -1773,11 +1794,15 @@ import traceback
 # Добавляем импорт для создания сессии внутри функции восстановления
 from database import async_session_maker
 
+from redis.asyncio import Redis
+from config import config
+
 class BroadcastService:
     def __init__(self, bot: Bot, session: AsyncSession):
         self.bot = bot
         self.session = session
         self.logger = logging.getLogger('broadcast')
+        self.redis = Redis.from_url(config.REDIS_URL)
     
     async def create_broadcast(self, message_text: str = None, photo_file_id: str = None,
                               video_file_id: str = None, document_file_id: str = None,
@@ -1843,6 +1868,11 @@ class BroadcastService:
             
             # Отправляем сообщение каждому пользователю
             for user_id in user_ids:
+                # ПРОВЕРКА СВЕТОФОРА
+                # Если идет выбор победителя, ждем, пока он закончит
+                while await self.redis.get("system:high_load"):
+                    await asyncio.sleep(2)  # Спим 2 секунды и проверяем снова
+                
                 try:
                     success = await self._send_single_message(user_id, broadcast)
                     if success:
@@ -1852,8 +1882,9 @@ class BroadcastService:
                 except Exception as e:
                     blocked_count += 1
                 
-                # Делаем паузу, чтобы не превысить лимиты Telegram
-                await asyncio.sleep(0.05)  # 50ms delay
+                # ОГРАНИЧИТЕЛЬ СКОРОСТИ (чтобы не забить канал полностью)
+                # 0.1 сек = 10 сообщений в секунду. Оставляем запас для юзеров.
+                await asyncio.sleep(0.1)
             
             # Обновляем статистику и завершаем
             await self.session.execute(
@@ -1989,7 +2020,11 @@ async def recover_stuck_broadcasts(bot: Bot):
             logging.info("✅ All stuck broadcasts recovered to 'interrupted' status.")
             
         except Exception as e:
-            logging.error(f"Error during broadcast recovery: {e}")=== ./services/admin_statistics_service.py ===
+            logging.error(f"Error during broadcast recovery: {e}")
+    
+    async def close(self):
+        """Закрытие соединения с Redis"""
+        await self.redis.aclose()=== ./services/admin_statistics_service.py ===
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, update
@@ -8464,28 +8499,50 @@ volumes:
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-# Часовые пояса
+# Константы
 MSK = ZoneInfo("Europe/Moscow")
 UTC = timezone.utc
 
+def get_now_utc() -> datetime:
+    """Возвращает текущее время в UTC с информацией о зоне."""
+    return datetime.now(UTC)
+
 def get_now_msk() -> datetime:
+    """Возвращает текущее время в МСК с информацией о зоне."""
     return datetime.now(MSK)
 
-def to_msk(dt: datetime) -> datetime:
-    """Переводит дату в МСК (если она naive, считаем что это UTC)"""
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(MSK)
-
 def to_utc(dt: datetime) -> datetime:
-    """Переводит МСК в UTC"""
+    """
+    Переводит любое время в UTC.
+    Если время пришло без зоны (naive), считаем его МСК (так как бот для РФ).
+    """
     if dt.tzinfo is None:
+        # Если зона не указана, присваиваем MSK (бизнес-логика твоего бота)
         dt = dt.replace(tzinfo=MSK)
     return dt.astimezone(UTC)
 
+def to_msk(dt: datetime) -> datetime:
+    """
+    Переводит любое время в МСК.
+    Если время пришло без зоны (naive), считаем его UTC.
+    """
+    if dt.tzinfo is None:
+        # Если зона не указана, присваиваем UTC
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(MSK)
+
 def strip_tz(dt: datetime) -> datetime:
-    """Удаляет информацию о таймзоне для записи в БД (naive UTC)"""
-    return dt.replace(tzinfo=None)=== ./core/tools/scheduler.py ===
+    """
+    Убирает информацию о временной зоне, оставляя только "naive" datetime.
+    """
+    return dt.replace(tzinfo=None)
+
+def to_user_timezone(dt: datetime, tz: ZoneInfo = MSK) -> datetime:
+    """Переводит время из БД (UTC) в зону пользователя для отображения."""
+    if dt.tzinfo is None:
+        # Если вдруг из базы пришло без зоны (старые записи), считаем UTC
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(tz)=== ./core/tools/scheduler.py ===
 # core/tools/scheduler.py
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.redis import RedisJobStore
@@ -8519,7 +8576,7 @@ async def shutdown_scheduler():
 from datetime import datetime
 from core.tools.timezone import to_msk
 
-def format_giveaway_caption(prize_text: str, winners_count: int, finish_time: datetime, participants_count: int) -> str:
+def format_giveaway_caption(prize_text: str, winners_count: int, finish_time: datetime, participants_count: int, is_hidden: bool = False) -> str:
     # Переводим время в МСК для отображения
     finish_msk = to_msk(finish_time)
     
@@ -8538,10 +8595,16 @@ def format_giveaway_caption(prize_text: str, winners_count: int, finish_time: da
 
     date_str = finish_msk.strftime("%d.%m.%Y %H:%M MSK")
 
+    # ЛОГИКА СКРЫТИЯ
+    if is_hidden:
+        part_text = "🔥 Много" # Или "Скрыто", или просто не выводить строку
+    else:
+        part_text = str(participants_count)
+
     return (
         f"{prize_text}\n\n"
-        f"➖➖➖➖➖➖➖➖➖➖\n"
-        f"👥 <b>Участников:</b> {participants_count}\n"
+        f"➖➖➖➖➖\n"
+        f"👥 <b>Участников:</b> {part_text}\n"
         f"🏆 <b>Призовых мест:</b> {winners_count}\n"
         f"⏳ <b>Итоги:</b> {date_str} ({time_left})"
     )=== ./core/tools/broadcast_scheduler.py ===
@@ -9703,14 +9766,15 @@ MiddlewareHandler = Callable[
 import asyncio
 import logging
 import secrets
+from datetime import datetime
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound, TelegramRetryAfter
 from config import config
 from database import async_session_maker
 from database.requests.giveaway_repo import (
-    get_giveaway_by_id, 
-    get_active_giveaways, 
+    get_giveaway_by_id,
+    get_active_giveaways,
     get_required_channels,
     get_expired_active_giveaways
 )
@@ -9741,76 +9805,119 @@ async def check_subscription_all(bot: Bot, user_id: int, main_channel_id: int, r
 async def finish_giveaway_task(giveaway_id: int):
     """
     Финальная логика завершения розыгрыша.
-    С защитой от 'мертвых душ'.
+    1. Включает Global Lock (останавливает рассылки).
+    2. Перебирает кандидатов, пока не найдет нужное кол-во подписанных.
+    3. Публикует результаты.
+    4. Выключает Global Lock.
     """
     bot = Bot(
         token=config.BOT_TOKEN.get_secret_value(),
         default=DefaultBotProperties(parse_mode="HTML")
     )
     
+    # Ключ блокировки для "Светофора"
+    LOCK_KEY = "system:high_load"
+
     try:
+        # Импорты для Redis
+        from redis.asyncio import Redis
+        from config import config
+        redis = Redis.from_url(config.REDIS_URL)
+        
+        # 1. ВКЛЮЧАЕМ КРАСНЫЙ СВЕТ
+        # Ставим флаг на 5 минут (с запасом, если проверка затянется)
+        await redis.set(LOCK_KEY, "1", ex=300)
+        logging.info(f"🛑 System Locked for GW #{giveaway_id} finish")
+
         bot_info = await bot.get_me()
 
         async with async_session_maker() as session:
             gw = await get_giveaway_by_id(session, giveaway_id)
-            # Проверка статуса (если вдруг он уже завершен другим процессом)
             if not gw or gw.status != 'active':
-                logger.warning(f"GW {giveaway_id} is not active or not found.")
+                logging.warning(f"GW {giveaway_id} is not active or not found.")
                 return
 
             req_channels = await get_required_channels(session, giveaway_id)
-            final_winner_ids = []
             
-            # --- ИСПОЛЬЗУЕМ ОПТИМИЗИРОВАННЫЙ ВЫБОР ПОБЕДИТЕЛЕЙ ЧЕРЕЗ SQL ---
-            from core.logic.randomizer import select_winners_sql
-            all_candidate_ids = await get_all_participant_ids(session, giveaway_id)
+            # Целевое количество победителей
+            target_winners_count = gw.winners_count
+            final_winners_ids = []
             
-            if len(all_candidate_ids) == 0:
-                logger.info(f"No participants for giveaway {giveaway_id}")
-            else:
-                # Выбираем победителей через SQL
-                sql_selected_winners = await select_winners_sql(
-                    session=session,
-                    giveaway_id=giveaway_id,
-                    winners_count=gw.winners_count,
-                    predetermined_winner_id=gw.predetermined_winner_id
+            # Список ID, которые мы уже проверили (чтобы не проверять дважды)
+            checked_ids = set()
+
+            # --- ШАГ А: Проверка "Блатного" (Predetermined) ---
+            if gw.predetermined_winner_id:
+                pid = gw.predetermined_winner_id
+                checked_ids.add(pid)
+                
+                # Проверяем, участвует ли он вообще
+                from database.requests.participant_repo import is_participant_active
+                is_participant = await is_participant_active(session, pid, gw.id)
+                
+                if is_participant:
+                    # Проверяем подписку
+                    if await check_subscription_all(bot, pid, gw.channel_id, req_channels):
+                        final_winners_ids.append(pid)
+                        logging.info(f"Predetermined winner {pid} qualified.")
+                    else:
+                        logging.info(f"Predetermined winner {pid} failed subscription check.")
+                else:
+                    logging.info(f"Predetermined winner {pid} is not a participant.")
+
+            # --- ШАГ Б: Добор случайных победителей (Цикл) ---
+            
+            # Пока не набрали нужное кол-во
+            while len(final_winners_ids) < target_winners_count:
+                
+                needed = target_winners_count - len(final_winners_ids)
+                
+                # Берем с запасом (x5), чтобы лишний раз не дергать БД
+                batch_size = needed * 5
+                if batch_size < 10: batch_size = 10
+                
+                # Получаем пачку случайных кандидатов, исключая уже проверенных
+                candidates = await get_random_candidates_batch(
+                    session, gw.id, batch_size, list(checked_ids)
                 )
                 
-                # Проверяем каждого выбранного победителя на актуальность (подписка, активность)
-                for uid in sql_selected_winners:
+                if not candidates:
+                    logging.info("No more candidates available.")
+                    break # Участники кончились
+                
+                for uid in candidates:
+                    checked_ids.add(uid) # Запоминаем, что проверили
+                    
                     # Проверяем подписку
                     if await check_subscription_all(bot, uid, gw.channel_id, req_channels):
-                        # ПРОВЕРКА НА "ЖИВОГО" ЮЗЕРА
+                        # Проверка на "живого" (не удален ли аккаунт)
                         try:
-                            # Пытаемся отправить "тихое" действие или сообщение
                             await bot.send_chat_action(uid, "typing")
+                            final_winners_ids.append(uid)
                             
-                            # Если ок - добавляем
-                            final_winner_ids.append(uid)
-                            
-                        except (TelegramForbiddenError, TelegramNotFound):
-                            logger.info(f"User {uid} blocked bot or deleted account. Skipping.")
-                            continue
-                        except Exception as e:
-                            logger.error(f"Error checking user {uid}: {e}")
-                            continue
-                    else:
-                        logger.info(f"Winner {uid} no longer meets subscription requirements. Skipping.")
-            
-            # --- ЭТАП 3: Сохранение ---
+                            # Если набрали комплект - выходим из цикла for
+                            if len(final_winners_ids) == target_winners_count:
+                                break
+                        except Exception:
+                            logging.info(f"User {uid} is dead/blocked bot. Skipping.")
+                
+                # Небольшая пауза между батчами, чтобы не убить CPU/DB
+                await asyncio.sleep(0.1)
+
+            # --- ШАГ В: Сохранение и Публикация ---
             gw.status = "finished"
             
-            for uid in final_winner_ids:
+            for uid in final_winners_ids:
                 session.add(Winner(giveaway_id=gw.id, user_id=uid))
             
             await session.commit()
             
             # Формирование текста
-            if not final_winner_ids:
+            if not final_winners_ids:
                 result_text = "😔 <b>Розыгрыш завершен без победителей.</b>"
             else:
                 mentions = []
-                for idx, uid in enumerate(final_winner_ids, 1):
+                for idx, uid in enumerate(final_winners_ids, 1):
                     try:
                         chat = await bot.get_chat(uid)
                         
@@ -9883,8 +9990,34 @@ async def finish_giveaway_task(giveaway_id: int):
             except Exception as e:
                 logger.error(f"Error publishing results: {e}")
 
+    except Exception as e:
+        logging.error(f"🔥 Critical error finishing GW {giveaway_id}: {e}")
     finally:
+        # 2. ВЫКЛЮЧАЕМ КРАСНЫЙ СВЕТ
+        await redis.delete(LOCK_KEY)
+        logging.info(f"🟢 System Unlocked after GW #{giveaway_id}")
         await bot.session.close()
+
+# --- Вспомогательная SQL функция ---
+async def get_random_candidates_batch(session, giveaway_id, limit, exclude_ids):
+    """
+    Возвращает случайных участников, исключая тех, кто в списке exclude_ids.
+    """
+    from database.models.participant import Participant
+    from sqlalchemy import func
+    
+    stmt = select(Participant.user_id).where(
+        Participant.giveaway_id == giveaway_id
+    )
+    
+    if exclude_ids:
+        stmt = stmt.where(Participant.user_id.notin_(exclude_ids))
+    
+    # Используем RANDOM() для случайной выборки
+    stmt = stmt.order_by(func.random()).limit(limit)
+    
+    result = await session.execute(stmt)
+    return result.scalars().all()
 
 # --- Safety Net: Обработка просроченных ---
 async def process_expired_giveaways():
@@ -9905,24 +10038,96 @@ async def process_expired_giveaways():
             logging.info("✅ No expired giveaways found.")
 
 # --- Фоновая задача обновления ---
-async def update_active_giveaways_task():
-    """Фоновая задача: обновляет счетчики."""
+async def smart_update_giveaway_task():
+    """
+    Умный воркер: берет ОДИН давно не обновлявшийся розыгрыш,
+    проверяет, изменилось ли кол-во участников значимо,
+    и если да — обновляет пост.
+    """
+    from config import config
     bot = Bot(
         token=config.BOT_TOKEN.get_secret_value(),
         default=DefaultBotProperties(parse_mode="HTML")
     )
+
+    # Импорты для Redis
+    from redis.asyncio import Redis
+    from config import config
+    redis = Redis.from_url(config.REDIS_URL)
     
     try:
-        bot_info = await bot.get_me()
+        # Если горит красный свет - вообще не обновляем посты, это не важно сейчас
+        if await redis.get("system:high_load"):
+            await redis.aclose()
+            return # Просто выходим, попробуем в следующем цикле через 10 сек
         
         async with async_session_maker() as session:
-            active_gws = await get_active_giveaways(session)
+            # 1. Берем самый "старый" по обновлению активный розыгрыш
+            # Сортируем по last_update_at (кто давно не обновлялся — тот первый)
+            from sqlalchemy import select, asc, func
+            from database.models.giveaway import Giveaway
+            stmt = (
+                select(Giveaway)
+                .where(Giveaway.status == "active")
+                .order_by(asc(Giveaway.last_update_at))
+                .limit(1)
+            )
+            gw = await session.scalar(stmt)
+
+            if not gw:
+                return # Нет активных розыгрышей, спим дальше
+
+            # 2. Получаем текущее реальное кол-во участников
+            current_count = await get_participants_count(session, gw.id)
             
-            for gw in active_gws:
+            # 3. Логика "Порога значимости" (Threshold)
+            # Вычисляем разницу с прошлого раза
+            diff = abs(current_count - gw.last_count)
+            
+            # Определяем порог в зависимости от размера аудитории
+            threshold = 1 # По умолчанию
+            if current_count > 1000:
+                threshold = 50 # Если больше 1000, обновляем каждые 50 чел
+            elif current_count > 100:
+                threshold = 10 # Если больше 100, обновляем каждые 10 чел
+            else:
+                threshold = 1  # Если мало, обновляем каждого (для динамики)
+
+            # Проверка времени до конца (если осталось мало времени — обновляем чаще/всегда)
+            from datetime import datetime
+            from datetime import timezone
+            
+            # --- ИСПРАВЛЕНИЕ ОШИБКИ ВРЕМЕНИ ---
+            # Приводим все даты к UTC-aware перед вычитанием
+            def ensure_utc(dt: datetime) -> datetime:
+                """Если дата naive, считаем её UTC. Если aware, оставляем как есть."""
+                if dt.tzinfo is None:
+                    return dt.replace(tzinfo=timezone.utc)
+                return dt
+            
+            now_utc = datetime.now(timezone.utc)
+            finish_time_utc = ensure_utc(gw.finish_time)
+            last_update_utc = ensure_utc(gw.last_update_at)
+            
+            time_left = (finish_time_utc - now_utc).total_seconds()
+            is_urgent = time_left < 3600 # Остался 1 час
+
+            # 4. Принимаем решение: Обновлять или нет?
+            should_update = False
+            
+            if is_urgent:
+                should_update = True # Срочно — обновляем всегда
+            elif diff >= threshold:
+                should_update = True # Набрали достаточно людей — обновляем
+            elif (now_utc - last_update_utc).total_seconds() > 3600:
+                should_update = True # Прошел час без изменений — обновим на всякий случай (актуализация таймера)
+
+            # 5. Выполняем действие
+            if should_update:
                 try:
-                    count = await get_participants_count(session, gw.id)
+                    bot_info = await bot.get_me()
                     new_caption = format_giveaway_caption(
-                        gw.prize_text, gw.winners_count, gw.finish_time, count
+                        gw.prize_text, gw.winners_count, gw.finish_time, current_count, gw.is_participants_hidden
                     )
                     kb = join_keyboard(bot_info.username, gw.id)
 
@@ -9937,62 +10142,27 @@ async def update_active_giveaways_task():
                             text=new_caption, reply_markup=kb, disable_web_page_preview=True
                         )
                     
-                    # --- ИЗМЕНЕНИЕ: Увеличенная задержка для защиты от FloodWait ---
-                    # 1.5 секунды - безопасный интервал для массовых обновлений
-                    await asyncio.sleep(1.5)
-                    # -------------------------------------------------------------
-
-                except TelegramForbiddenError as e:
-                    # Бот был удален из админов или заблокирован
-                    logger.error(f"Bot lost access to channel {gw.channel_id} for giveaway {gw.id}: {e}")
-                    # Обновляем статус розыгрыша в базе данных
-                    gw.status = 'paused_error'
-                    try:
-                        await session.commit()
-                        # Отправляем уведомление владельцу
-                        try:
-                            await bot.send_message(
-                                chat_id=gw.owner_id,
-                                text=f"⚠️ Я потерял доступ к каналу. Розыгрыш приостановлен. Верните админку и нажмите 'Обновить'.\nID розыгрыша: {gw.id}"
-                            )
-                        except Exception as notify_error:
-                            logger.error(f"Failed to notify owner about access loss: {notify_error}")
-                    except Exception as db_error:
-                        logger.error(f"Failed to update giveaway status after access loss: {db_error}")
-                        
-                except TelegramBadRequest as e:
-                    if "message to edit not found" in str(e).lower():
-                        # Пост удален вручную
-                        logger.error(f"Post was deleted manually for giveaway {gw.id}: {e}")
-                        # Обновляем статус розыгрыша в базе данных
-                        gw.status = 'cancelled'
-                        try:
-                            await session.commit()
-                            # Отправляем уведомление владельцу
-                            try:
-                                await bot.send_message(
-                                    chat_id=gw.owner_id,
-                                    text=f"⚠️ Пост с розыгрышем был удален вручную. Розыгрыш отменен.\nID розыгрыша: {gw.id}"
-                                )
-                            except Exception as notify_error:
-                                logger.error(f"Failed to notify owner about post deletion: {notify_error}")
-                        except Exception as db_error:
-                            logger.error(f"Failed to update giveaway status after post deletion: {db_error}")
-                    elif "message is not modified" in str(e).lower():
-                        # Сообщение не изменилось, это нормально
-                        continue
-                    else:
-                        logger.error(f"BadRequest error updating GW {gw.id}: {e}")
-                        
-                except TelegramRetryAfter as e:
-                    # Если все-таки словили флуд, ждем сколько просят
-                    logger.warning(f"FloodWait updating GW {gw.id}. Sleeping {e.retry_after}s")
-                    await asyncio.sleep(e.retry_after)
+                    # Запоминаем новое состояние
+                    gw.last_count = current_count
+                    logger.info(f"✅ Smart update GW #{gw.id}: count {current_count}")
                     
                 except Exception as e:
-                    logger.error(f"Unexpected error updating GW {gw.id}: {e}")
-                    
+                    logger.warning(f"⚠️ Failed update GW #{gw.id}: {e}")
+                    # Здесь можно добавить обработку ошибок (как в старом коде),
+                    # но главное — мы не блокируем очередь.
+            
+            # 6. В ЛЮБОМ СЛУЧАЕ обновляем время проверки
+            # Это переместит розыгрыш в конец очереди (он станет "самым свежим")
+            gw.last_update_at = now_utc
+            await session.commit()
+
+    except asyncio.CancelledError:  # Задача была отменена при выключении бота, это нормально
+        pass
+
+    except Exception as e:
+        logger.error(f"Smart worker error: {e}")
     finally:
+        await redis.aclose()
         await bot.session.close()
 
 
@@ -13018,7 +13188,7 @@ class UpdatesFilterMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         # Всегда пропускаем платежи, даже если бот лежал час
-        if event.successful_payment or event.invoice_payload:
+        if event.successful_payment or (hasattr(event, 'invoice_payload') and event.invoice_payload):
             return await handler(event, data)
 
         # Проверка времени
@@ -13036,6 +13206,7 @@ class UpdatesFilterMiddleware(BaseMiddleware):
             return  # Просто выходим, не вызывая handler -> сообщение игнорируется
             
         return await handler(event, data)=== ./main.py ===
+
 import asyncio
 import logging
 import signal
@@ -13049,7 +13220,7 @@ from config import config
 from database import engine, Base
 from core.tools.scheduler import start_scheduler, scheduler, shutdown_scheduler
 from core.tools.broadcast_scheduler import start_broadcast_scheduler, broadcast_scheduler, shutdown_broadcast_scheduler
-from core.logic.game_actions import update_active_giveaways_task, process_expired_giveaways
+from core.logic.game_actions import smart_update_giveaway_task, process_expired_giveaways
 from services.admin_broadcast_service import recover_stuck_broadcasts
 
 from middlewares.db_session import DbSessionMiddleware
@@ -13100,6 +13271,10 @@ async def graceful_shutdown(signum=None, frame=None):
 async def main():
     logging.basicConfig(level=logging.INFO)
     
+    # Отключаем спам в логах от планировщика (показываем только ошибки)
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
+    
     # Инициализация БД
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -13139,7 +13314,16 @@ async def main():
     await recover_stuck_broadcasts(bot)
 
     # Запуск планировщиков
-    scheduler.add_job(update_active_giveaways_task, "interval", minutes=30, id="global_updater", replace_existing=True)
+    # Запускаем "Карусель": каждые 10 секунд обрабатываем 1 розыгрыш
+    # Это 360 обновлений в час — абсолютно безопасно для Telegram API
+    scheduler.add_job(
+        smart_update_giveaway_task,
+        "interval",
+        seconds=10,  # <-- Частота "тиков" карусели
+        id="smart_updater",
+        replace_existing=True,
+        max_instances=1 # Защита: не запускать новый, если старый завис
+    )
     await start_scheduler()
     await start_broadcast_scheduler()
 
@@ -13258,6 +13442,7 @@ class Channel(Base):
     channel_id: Mapped[int] = mapped_column(BigInteger) # ID канала в Telegram
     title: Mapped[str] = mapped_column(String)
     username: Mapped[str | None] = mapped_column(String, nullable=True)
+    type: Mapped[str] = mapped_column(String, default="channel") # channel / supergroup / group
     
     # НОВОЕ ПОЛЕ: Ссылка-приглашение (для приватных каналов)
     invite_link: Mapped[str | None] = mapped_column(String, nullable=True)=== ./database/models/winner.py ===
@@ -13269,9 +13454,9 @@ from database.base import Base
 class Winner(Base):
     __tablename__ = "winners"
 
-    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)=== ./database/models/pending_referral.py ===
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)=== ./database/models/pending_referral.py ===
 from sqlalchemy import BigInteger, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from database.base import Base
@@ -13285,7 +13470,7 @@ class PendingReferral(Base):
     __tablename__ = "pending_referrals"
 
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True) # Тот, кого пригласили
-    giveaway_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id", ondelete="CASCADE"), primary_key=True)
     referrer_id: Mapped[int] = mapped_column(BigInteger) # Тот, кто пригласил=== ./database/models/admin_models.py ===
 from sqlalchemy import Integer, String, DateTime, Boolean, func, JSON, Text, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column
@@ -13301,7 +13486,7 @@ class AdminLog(Base):
     action: Mapped[str] = mapped_column(String)
     target_id: Mapped[int | None] = mapped_column(BigInteger)
     details: Mapped[dict | None] = mapped_column(JSON)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
 
 class Broadcast(Base):
@@ -13312,14 +13497,14 @@ class Broadcast(Base):
     photo_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
     video_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
     document_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    scheduled_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    scheduled_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String, default="pending")
     sent_count: Mapped[int] = mapped_column(Integer, default=0)
     total_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     blocked_count: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[int] = mapped_column(Integer)
 
 
@@ -13331,9 +13516,9 @@ class ScheduledBroadcast(Base):
     photo_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
     video_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
     document_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    scheduled_time: Mapped[datetime] = mapped_column(DateTime)
+    scheduled_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String, default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
     created_by: Mapped[int] = mapped_column(Integer)=== ./database/models/user.py ===
 from datetime import datetime
 from sqlalchemy import BigInteger, String, Boolean, DateTime, func, Index
@@ -13349,10 +13534,10 @@ class User(Base):
     
     # --- Monetization ---
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
-    premium_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    premium_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # --- Timestamps ---
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
     
     # Связь с розыгрышами (владелец)
     giveaways: Mapped[list["Giveaway"]] = relationship("Giveaway", back_populates="owner", lazy="selectin")
@@ -13377,9 +13562,10 @@ class Giveaway(Base):
     channel_id: Mapped[int] = mapped_column(BigInteger)
     message_id: Mapped[int] = mapped_column(BigInteger)
     
+    short_description: Mapped[str] = mapped_column(String(255), nullable=True) # Краткое описание розыгрыша
     prize_text: Mapped[str] = mapped_column(Text)
     winners_count: Mapped[int] = mapped_column(Integer, default=1)
-    finish_time: Mapped[datetime] = mapped_column(DateTime)
+    finish_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     
     status: Mapped[str] = mapped_column(String, default="active")
     
@@ -13392,16 +13578,21 @@ class Giveaway(Base):
 
     media_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
     media_type: Mapped[str | None] = mapped_column(String, nullable=True)
-    
     # Дополнительные настройки
     is_referral_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     is_captcha_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     is_paid: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_participants_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # НОВЫЕ ПОЛЯ ДЛЯ УМНОГО ОБНОВЛЕНИЯ
+    last_update_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)  # Когда обновляли пост последний раз
+    last_count: Mapped[int] = mapped_column(Integer, default=0)  # Сколько было участников при последнем обновлении
+
 
     # Связи с другими моделями
     owner: Mapped["User"] = relationship("User", back_populates="giveaways", lazy="selectin")
-    required_channels: Mapped[list["GiveawayRequiredChannel"]] = relationship("GiveawayRequiredChannel", back_populates="giveaway", lazy="selectin")
-    participants: Mapped[list["Participant"]] = relationship("Participant", back_populates="giveaway", lazy="selectin")
+    required_channels: Mapped[list["GiveawayRequiredChannel"]] = relationship("GiveawayRequiredChannel", back_populates="giveaway", lazy="selectin", cascade="all, delete-orphan")
+    participants: Mapped[list["Participant"]] = relationship("Participant", back_populates="giveaway", lazy="selectin", cascade="all, delete-orphan")
 
 # Индексы для оптимизации производительности
 Index('idx_giveaways_status', Giveaway.status)
@@ -13421,14 +13612,14 @@ class Participant(Base):
     __tablename__ = "participants"
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), primary_key=True)
-    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), primary_key=True)
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id", ondelete="CASCADE"), primary_key=True)
     
     # Добавляем уникальный индекс для предотвращения дубликатов
     __table_args__ = (
         # Уникальный индекс для предотвращения дубликатов участников в одном розыгрыше
         UniqueConstraint('user_id', 'giveaway_id', name='unique_user_giveaway'),
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     # Кол-во шансов (билетов)
     tickets_count: Mapped[int] = mapped_column(Integer, default=1) 
@@ -13450,7 +13641,7 @@ class GiveawayRequiredChannel(Base):
     __tablename__ = "giveaway_required_channels"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"))
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id", ondelete="CASCADE"))
     channel_id: Mapped[int] = mapped_column(BigInteger) # ID канала спонсора
     channel_title: Mapped[str] = mapped_column(String)  # Название (для списка)
     channel_link: Mapped[str] = mapped_column(String)   # Ссылка (username или invite link)
@@ -13510,25 +13701,31 @@ async def get_user_stats(session: AsyncSession, user_id: int) -> dict:
     return {"active": row.active or 0, "finished": row.finished or 0}
 === ./database/requests/giveaway_repo.py ===
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, desc, func
 from database.models.giveaway import Giveaway
 from database.models.required_channel import GiveawayRequiredChannel
 
+# Определяем UTC как временную зону
+UTC = ZoneInfo("UTC")
+
 async def create_giveaway(
-    session: AsyncSession, owner_id: int, channel_id: int, 
+    session: AsyncSession, owner_id: int, channel_id: int,
     message_id: int, prize: str, winners: int, end_time: datetime,
     media_file_id: str = None, media_type: str = None,
     sponsors: list = None,
     is_referral: bool = False,
-    is_captcha: bool = False
+    is_captcha: bool = False,
+    short_description: str = None
 ) -> int:
     new_gw = Giveaway(
         owner_id=owner_id, channel_id=channel_id, message_id=message_id,
         prize_text=prize, winners_count=winners, finish_time=end_time,
         media_file_id=media_file_id, media_type=media_type,
         is_referral_enabled=is_referral,
-        is_captcha_enabled=is_captcha
+        is_captcha_enabled=is_captcha,
+        short_description=short_description
     )
     session.add(new_gw)
     await session.flush()
@@ -13564,7 +13761,7 @@ async def get_expired_active_giveaways(session: AsyncSession):
     """Возвращает активные розыгрыши, время которых истекло"""
     stmt = select(Giveaway).where(
         Giveaway.status == "active",
-        Giveaway.finish_time <= datetime.utcnow()
+        Giveaway.finish_time <= datetime.now(UTC)
     )
     result = await session.execute(stmt)
     return result.scalars().all()
@@ -13615,12 +13812,13 @@ from sqlalchemy.dialects.postgresql import insert
 from database.models.channel import Channel
 
 async def add_channel(
-    session: AsyncSession, 
-    user_id: int, 
-    channel_id: int, 
-    title: str, 
-    username: str | None, 
-    invite_link: str | None
+    session: AsyncSession,
+    user_id: int,
+    channel_id: int,
+    title: str,
+    username: str | None,
+    invite_link: str | None,
+    chat_type: str = "channel"
 ):
     """
     Добавляет или обновляет канал с инвайт-ссылкой.
@@ -13630,10 +13828,11 @@ async def add_channel(
         channel_id=channel_id,
         title=title,
         username=username,
-        invite_link=invite_link
+        invite_link=invite_link,
+        type=chat_type
     ).on_conflict_do_update(
-        index_elements=['id'], 
-        set_=dict(title=title, username=username, invite_link=invite_link)
+        index_elements=['id'],
+        set_=dict(title=title, username=username, invite_link=invite_link, type=chat_type)
     )
     
     # Проверка на существование для надежности (альтернатива on_conflict для некоторых БД)
@@ -13642,13 +13841,15 @@ async def add_channel(
         existing.title = title
         existing.username = username
         existing.invite_link = invite_link
+        existing.type = chat_type
     else:
         session.add(Channel(
-            user_id=user_id, 
-            channel_id=channel_id, 
-            title=title, 
-            username=username, 
-            invite_link=invite_link
+            user_id=user_id,
+            channel_id=channel_id,
+            title=title,
+            username=username,
+            invite_link=invite_link,
+            type=chat_type
         ))
     
     # commit будет выполнен в middleware
@@ -13687,14 +13888,15 @@ async def add_participant(session: AsyncSession, user_id: int, giveaway_id: int,
     return result.rowcount > 0
 
 async def increment_ticket(session: AsyncSession, user_id: int, giveaway_id: int):
-    stmt = select(Participant).where(
-        Participant.user_id == user_id, 
-        Participant.giveaway_id == giveaway_id
+    from sqlalchemy import update
+    # Это SQL-запрос, он выполняется внутри базы мгновенно и атомарно
+    stmt = (
+        update(Participant)
+        .where(Participant.user_id == user_id, Participant.giveaway_id == giveaway_id)
+        .values(tickets_count=Participant.tickets_count + 1)
     )
-    participant = await session.scalar(stmt)
-    if participant:
-        participant.tickets_count += 1
-        await session.commit()
+    await session.execute(stmt)
+    # commit будет в middleware
 
 async def is_circular_referral(session: AsyncSession, new_user_id: int, referrer_id: int, giveaway_id: int) -> bool:
     stmt = select(Participant).where(
@@ -13792,7 +13994,21 @@ async def count_user_participations(session: AsyncSession, user_id: int, status:
     stmt = select(func.count(Giveaway.id)).join(Participant).where(Participant.user_id == user_id)
     if status:
         stmt = stmt.where(Giveaway.status == status)
-    return await session.scalar(stmt)=== ./database/requests/__init__.py ===
+    return await session.scalar(stmt)
+
+# --- Экспорт участников ---
+async def get_participants_for_export(session: AsyncSession, giveaway_id: int):
+    """Возвращает генератор или список участников с данными User"""
+    from sqlalchemy import select
+    from database.models.user import User
+    
+    stmt = (
+        select(Participant.user_id, Participant.created_at, User.username, User.full_name)
+        .join(User, Participant.user_id == User.user_id)
+        .where(Participant.giveaway_id == giveaway_id)
+    )
+    result = await session.execute(stmt)
+    return result.all()=== ./database/requests/__init__.py ===
 === ./database/__init__.py ===
 # database/__init__.py
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -13832,7 +14048,7 @@ from filters.admin_filter import IsAdmin
 from keyboards.admin_keyboards import get_main_admin_menu_keyboard
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.rate_limiter import admin_rate_limiter
-from utils.exception_handler import admin_errors_handler
+# from utils.exception_handler import admin_errors_handler # Удаляем импорт, если он не используется больше нигде
 
 # Инициализация роутера
 admin_router = Router()
@@ -13864,10 +14080,10 @@ from middlewares.admin_middleware import AdminRateLimitMiddleware
 admin_router.callback_query.middleware(AdminRateLimitMiddleware())
 
 
-# Обработчик ошибок для всего роутера
-@admin_router.errors()
-async def errors_handler(update, error):
-    admin_errors_handler(update, error)=== ./handlers/admin/broadcast_handlers.py ===
+# УДАЛЕНО: Обработчик ошибок для всего роутера
+# @admin_router.errors()
+# async def errors_handler(update, error):
+#     admin_errors_handler(update, error)=== ./handlers/admin/broadcast_handlers.py ===
 from datetime import datetime
 from aiogram import F, Bot
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -14896,7 +15112,7 @@ from keyboards.inline.participation import join_keyboard
 from core.tools.scheduler import scheduler
 from core.logic.game_actions import finish_giveaway_task
 from core.tools.formatters import format_giveaway_caption
-from core.tools.timezone import to_utc, strip_tz
+from core.tools.timezone import to_utc
 from handlers.creator.constructor.message_manager import get_message_manager
 
 logger = logging.getLogger(__name__)
@@ -14920,12 +15136,11 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
     try:
         finish_dt_msk = datetime.fromisoformat(data['finish_time_str'])
         finish_dt_utc = to_utc(finish_dt_msk)
-        finish_dt_db = strip_tz(finish_dt_utc) 
     except ValueError:
         return await call.answer("❌ Ошибка формата времени", show_alert=True)
     
     bot_info = await bot.get_me()
-    caption = format_giveaway_caption(data['text'], data['winners'], finish_dt_utc, 0)
+    caption = format_giveaway_caption(data['text'], data['winners'], finish_dt_utc, 0, data.get('is_participants_hidden', False))
     keyboard = join_keyboard(bot_info.username, 0)
     
     # 1. Публикация в канал
@@ -14943,12 +15158,13 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
     # 2. Сохранение в БД
     try:
         gw_id = await create_giveaway(
-            session, call.from_user.id, main_ch['id'], msg.message_id, 
-            data['text'], data['winners'], finish_dt_db,
-            data['media_file_id'], data['media_type'], 
-            data['sponsors'], 
-            is_referral=(data['ref_req'] > 0), 
-            is_captcha=data['is_captcha']
+            session, call.from_user.id, main_ch['id'], msg.message_id,
+            data['text'], data['winners'], finish_dt_utc,
+            data['media_file_id'], data['media_type'],
+            data['sponsors'],
+            is_referral=(data['ref_req'] > 0),
+            is_captcha=data['is_captcha'],
+            short_description=data.get('short_description', '')
         )
     except Exception as e:
         logger.critical(f"DB Error: {e}")
@@ -15088,9 +15304,9 @@ async def ask_channel_constr(call: types.CallbackQuery, state: FSMContext, bot: 
     
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_to_selector")]])
     msg = await call.message.answer(
-        "📢 <b>Добавление канала</b>\n\n"
-        "1. Добавьте бота в админы канала.\n"
-        "2. Перешлите сюда пост или отправьте @username.", 
+        "📢 <b>Добавление канала или чата</b>\n\n"
+        "1. Добавьте бота в администраторы Канала или Группы (Чата).\n"
+        "2. Перешлите сюда любое сообщение оттуда.",
         reply_markup=kb
     )
     
@@ -15117,20 +15333,35 @@ async def process_new_channel_step1_constr(message: types.Message, state: FSMCon
     try: await message.delete()
     except: pass
     
-    chat_id, title, username = None, "Title", None
+    chat_id, title, username, chat_type = None, "Title", None, None
     
     if message.forward_from_chat:
         chat_id = message.forward_from_chat.id
         title = message.forward_from_chat.title
         username = message.forward_from_chat.username
-    elif message.text and message.text.startswith("@"):
+        chat_type = message.forward_from_chat.type # channel, group, supergroup
+    elif message.text and (message.text.startswith("@") or "t.me/" in message.text):
+        # Логика парсинга ссылки/юзернейма
         try:
-            chat = await bot.get_chat(message.text)
+            # Очистка ссылки
+            input_text = message.text.replace("https://t.me/", "").replace("t.me/", "")
+            if "/" in input_text: input_text = input_text.split("/")[0] # Обработка ссылок на посты
+            
+            chat = await bot.get_chat(f"@{input_text}" if not input_text.startswith("@") else input_text)
             chat_id = chat.id
             title = chat.title
             username = chat.username
-        except: 
+            chat_type = chat.type
+        except:
             pass # Обработаем ниже
+    
+    # Проверка типа чата
+    if chat_type not in ("channel", "supergroup", "group"):
+        msg = await message.answer("❌ Это личный чат или бот. Добавьте <b>Канал</b> или <b>Группу</b>.")
+        manager = await get_message_manager(state)
+        manager.add_temp_message(msg)
+        await update_message_manager(state, manager)
+        return
     
     manager = await get_message_manager(state)
     
@@ -15140,12 +15371,13 @@ async def process_new_channel_step1_constr(message: types.Message, state: FSMCon
         await update_message_manager(state, manager)
         return
 
+    # Проверка прав (Бот должен быть админом, чтобы генерировать ссылки и проверять подписку)
     try:
         member = await bot.get_chat_member(chat_id, bot.id)
-        if member.status not in ("administrator", "creator"): 
+        if member.status not in ("administrator", "creator"):
             raise Exception("Bot is not admin")
-    except: 
-        msg = await message.answer("❌ Бот не админ в этом канале!")
+    except:
+        msg = await message.answer("❌ <b>Бот не админ!</b>\n\nДайте боту права администратора в канале или группе, чтобы он мог проверять подписку.")
         manager.add_temp_message(msg)
         await update_message_manager(state, manager)
         return
@@ -15167,7 +15399,7 @@ async def process_new_channel_step1_constr(message: types.Message, state: FSMCon
     # Удаляем предыдущие сообщения диалога
     await manager.delete_all(bot, message.chat.id)
     
-    text = f"✅ Канал <b>{title}</b> найден.\n"
+    text = f"✅ {'Канал' if chat_type == 'channel' else 'Чат'} <b>{title}</b> найден.\n"
     kb_builder = InlineKeyboardBuilder()
     if generated_link:
         text += f"\n🔗 Ссылка: {generated_link}\nИспользовать её?"
@@ -15188,7 +15420,7 @@ async def use_gen_link_callback(call: types.CallbackQuery, state: FSMContext, se
     ch_data = data['temp_channel']
     link = data.get('generated_link')
     
-    await add_channel(session, call.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link)
+    await add_channel(session, call.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link, chat_type)
     
     # Очистка и возврат
     manager = await get_message_manager(state)
@@ -15215,7 +15447,7 @@ async def process_link_text_constr(message: types.Message, state: FSMContext, se
     data = await state.get_data()
     ch_data = data.get('temp_channel')
     
-    await add_channel(session, message.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link)
+    await add_channel(session, message.from_user.id, ch_data['id'], ch_data['title'], ch_data['username'], link, chat_type)
     
     # Очистка и возврат
     await manager.delete_all(bot, message.chat.id)
@@ -15318,31 +15550,56 @@ async def receive_content(message: types.Message, state: FSMContext, bot: Bot):
     html_content = get_message_html(message)
     safe_text = sanitize_text(html_content)
     
-    # 3. ЖЕСТКАЯ проверка лимитов Telegram
-    # Если есть медиа -> лимит 1024. Если нет -> 4096.
-    limit = 1024 if media_type else 4096
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     
-    if len(safe_text) > limit:
+    # Определяем лимиты Telegram
+    TELEGRAM_CAPTION_LIMIT = 1024
+    TELEGRAM_TEXT_LIMIT = 4096
+    
+    # Резервируем место под "Футер" (Кол-во участников, таймер и т.д.)
+    # Берем с запасом, чтобы точно влезло
+    FOOTER_RESERVE = 200
+    
+    # Вычисляем реальный лимит для пользователя
+    if media_type:
+        # Если есть фото/видео
+        limit = TELEGRAM_CAPTION_LIMIT - FOOTER_RESERVE # 1024 - 200 = 824
+        limit_name = "подписи к медиа"
+    else:
+        # Если только текст
+        limit = TELEGRAM_TEXT_LIMIT - FOOTER_RESERVE # 4096 - 200 = 3896
+        limit_name = "сообщения"
+    
+    current_len = len(safe_text)
+
+    # ПРОВЕРКА
+    if current_len > limit:
+        diff = current_len - limit
+        
         if media_type:
             text_err = (
-                f"❌ <b>Слишком длинное описание для медиа!</b>\n\n"
-                f"Telegram ограничивает подпись к фото/видео до <b>1024 символов</b>.\n"
-                f"У вас: {len(safe_text)} символов.\n\n"
-                f"📉 <b>Что делать:</b>\n"
-                f"1. Сократите текст.\n"
-                f"2. Или отправьте текст БЕЗ картинки (тогда лимит 4096)."
+                f"❌ <b>Слишком длинное описание!</b>\n\n"
+                f"Telegram ограничивает длину подписи к фото/видео до <b>1024</b> символов.\n"
+                f"Мы резервируем <b>{FOOTER_RESERVE}</b> символов для счетчика участников и таймера.\n\n"
+                f"📏 Ваш текст: <b>{current_len}</b>\n"
+                f"⛔ Лимит: <b>{limit}</b>\n"
+                f"✂️ Нужно сократить на: <b>{diff}</b> символов.\n\n"
+                f"💡 <i>Совет: Отправьте текст отдельным сообщением (без картинки), тогда лимит будет 4000 символов.</i>"
             )
         else:
             text_err = (
                 f"❌ <b>Текст слишком длинный!</b>\n\n"
-                f"Лимит Telegram: <b>4096 символов</b>.\n"
-                f"У вас: {len(safe_text)}."
+                f"📏 Ваш текст: <b>{current_len}</b>\n"
+                f"⛔ Лимит (с учетом футера): <b>{limit}</b>\n"
+                f"✂️ Нужно сократить на: <b>{diff}</b> символов."
             )
             
         err_msg = await message.answer(text_err)
         manager.add_temp_message(err_msg)
         await update_message_manager(state, manager)
         return
+
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     # 4. Проверка на пустоту (если прислали только картинку без текста, или текст пустой)
     # Хотя пустая картинка допустима, но для розыгрыша нужен текст условий.
@@ -15361,9 +15618,48 @@ async def receive_content(message: types.Message, state: FSMContext, bot: Bot):
     
     # 5. Сохраняем данные
     await state.update_data(text=safe_text, media_file_id=media_id, media_type=media_type)
+    await state.set_state(ConstructorState.editing_short_description)
+    
+    # 6. Запрашиваем краткое описание
+    hint_text = "📝 <b>Шаг 2 из 7: Краткое описание</b>\n\nВведите краткое описание вашего розыгрыша (например, \"iPhone 17\", \"30 подарков\", \"VIP-доступ\", \"Неделя призов\"). Это описание будет использоваться для быстрого просмотра в списке розыгрышей."
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_creation")]
+    ])
+    
+    msg = await message.answer(hint_text, reply_markup=kb)
+    manager = await get_message_manager(state)
+    manager.add_temp_message(msg)
+    await update_message_manager(state, manager)
+
+@router.message(ConstructorState.editing_short_description)
+async def receive_short_description(message: types.Message, state: FSMContext, bot: Bot):
+    # Удаляем сообщение пользователя
+    try: await message.delete()
+    except: pass
+
+    manager = await get_message_manager(state)
+    
+    # Получаем текст описания
+    short_description = message.text.strip() if message.text else ""
+    
+    if not short_description:
+        err_msg = await message.answer("❌ Краткое описание не может быть пустым. Пожалуйста, введите краткое описание розыгрыша.")
+        manager.add_temp_message(err_msg)
+        await update_message_manager(state, manager)
+        return
+    
+    # Проверяем длину описания
+    if len(short_description) > 255:
+        err_msg = await message.answer("❌ Краткое описание слишком длинное. Пожалуйста, сократите его до 255 символов.")
+        manager.add_temp_message(err_msg)
+        await update_message_manager(state, manager)
+        return
+
+    # Сохраняем краткое описание
+    await state.update_data(short_description=short_description)
     await state.set_state(ConstructorState.init)
     
-    # 6. Перерисовка интерфейса
+    # Перерисовка интерфейса
     await refresh_constructor_view(bot, state, message.chat.id, hint_key='main_channel')=== ./handlers/creator/constructor/structure.py ===
 from aiogram.fsm.state import State, StatesGroup
 from aiogram import types
@@ -15372,7 +15668,8 @@ from aiogram.exceptions import TelegramBadRequest
 class ConstructorState(StatesGroup):
     init = State()
     editing_content = State()
-    confirm_short_text = State() 
+    editing_short_description = State()  # Новое состояние для ввода краткого описания
+    confirm_short_text = State()
     adding_channel = State()
     adding_channel_link = State()
     editing_winners = State()  # Новое состояние для ввода победителей вручную
@@ -15528,10 +15825,32 @@ async def toggle_cap(call: types.CallbackQuery, state: FSMContext, session: Asyn
     
     if not data['is_captcha']:
         user = await session.get(User, call.from_user.id)
-        if not user or not user.is_premium:
+        # Проверяем, является ли пользователь администратором
+        from filters.admin_filter import IsAdmin
+        is_admin = await IsAdmin().__call__(call)
+        
+        if not is_admin and (not user or not user.is_premium or (user.premium_until and user.premium_until < datetime.utcnow())):
             return await call.answer("🔒 Функция доступна только с Premium!", show_alert=True)
             
     await state.update_data(is_captcha=not data['is_captcha'])
+    # Перерисовываем
+    await refresh_constructor_view(bot, state, call.message.chat.id, hint_key='publish')
+    await call.answer("✅ Настройка изменена")
+
+
+@router.callback_query(F.data == "constr_toggle_hidden_participants")
+async def toggle_hidden_participants(call: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+    data = await state.get_data()
+    
+    user = await session.get(User, call.from_user.id)
+    # Проверяем, является ли пользователь администратором
+    from filters.admin_filter import IsAdmin
+    is_admin = await IsAdmin().__call__(call)
+    
+    if not is_admin and (not user or not user.is_premium or (user.premium_until and user.premium_until < datetime.utcnow())):
+        return await call.answer("🔒 Функция доступна только с Premium!", show_alert=True)
+        
+    await state.update_data(is_participants_hidden=not data.get('is_participants_hidden', False))
     # Перерисовываем
     await refresh_constructor_view(bot, state, call.message.chat.id, hint_key='publish')
     await call.answer("✅ Настройка изменена")
@@ -15785,7 +16104,7 @@ async def refresh_constructor_view(
         sponsors_len = len(data.get('sponsors', []))
         
         kb = constructor_main_kb(
-            "Установите время", winners, ref_req, is_cap, has_main, sponsors_len
+            "Установите время", winners, ref_req, is_cap, has_main, sponsors_len, data.get('is_participants_hidden', False)
         )
     
     control_msg = await bot.send_message(chat_id, hint_text, reply_markup=kb)
@@ -15848,6 +16167,15 @@ async def select_main_menu(call: types.CallbackQuery, session: AsyncSession, sta
 
 @router.callback_query(F.data == "constr_select_sponsors")
 async def select_sponsors_menu(call: types.CallbackQuery, session: AsyncSession, state: FSMContext, bot: Bot):
+    from datetime import datetime
+    user = await session.get(User, call.from_user.id)
+    # Проверяем, является ли пользователь администратором
+    from filters.admin_filter import IsAdmin
+    is_admin = await IsAdmin().__call__(call)
+    
+    if not is_admin and (not user or not user.is_premium or (user.premium_until and user.premium_until < datetime.utcnow())):
+        return await call.answer("🔒 Выбор более 5 спонсоров доступен только с Premium!", show_alert=True)
+    
     await state.update_data(channel_selector_mode="sponsor")
     await show_channels_selection(bot, state, session, call.from_user.id, "sponsor", call.message.chat.id)
     await call.answer()
@@ -16015,8 +16343,14 @@ async def try_join_giveaway(
         user = message_or_call.from_user
 
     gw = await get_giveaway_by_id(session, gw_id)
-    if not gw or gw.status != 'active':
-        return await message.answer("😔 <b>Увы, этот розыгрыш уже завершен.</b>")
+    
+    # 1. Если розыгрыш удален из базы
+    if not gw:
+        return await message.answer("❌ <b>Этот розыгрыш был удален организатором.</b>")
+        
+    # 2. Если розыгрыш существует, но время вышло
+    if gw.status != 'active':
+        return await message.answer("🏁 <b>Этот розыгрыш уже завершен. Победители определены.</b>")
 
     if user.id == gw.owner_id:
         return await message.answer("⚠️ Вы организатор этого розыгрыша.")
@@ -16105,21 +16439,44 @@ async def captcha_solved(call: CallbackQuery, state: FSMContext, session: AsyncS
     await call.message.delete()
     await check_subscriptions_step(call.message, call.from_user.id, gw, session, bot, state)
 
+# ... (импорты остаются прежними) ...
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest # Добавь в импорты
+
 async def check_subscriptions_step(message: Message, user_id: int, gw: Giveaway, session: AsyncSession, bot: Bot, state: FSMContext, force_check: bool = False):
     reqs = await get_required_channels(session, gw.id)
     
     channels_status = []
     all_subscribed = True
+    critical_error = None # Переменная для хранения текста ошибки доступа
+
+    # --- Вспомогательная функция для проверки прав бота ---
+    async def check_bot_access(channel_id: int, channel_title: str = "канал"):
+        try:
+            # Проверяем, видит ли бот сам себя в этом канале
+            # Если бота кикнули, этот метод вызовет TelegramForbiddenError
+            member = await bot.get_chat_member(channel_id, bot.id)
+            if member.status not in ("administrator", "creator"):
+                return f"⚠️ <b>Ошибка доступа!</b>\nБот перестал быть администратором в канале (ID: {channel_id}).\nПожалуйста, сообщите организатору."
+            return None
+        except (TelegramForbiddenError, TelegramBadRequest):
+            return f"⚠️ <b>Ошибка доступа!</b>\nБот был удален или заблокирован в канале (ID: {channel_id}).\nРозыгрыш приостановлен."
+    # -----------------------------------------------------
 
     # 1. Основной канал
     try:
         is_sub = await is_user_subscribed(bot, gw.channel_id, user_id, force_check=force_check)
         
+        # ЕСЛИ ПОДПИСКИ НЕТ -> ПРОВЕРЯЕМ, ЖИВ ЛИ БОТ
+        if not is_sub:
+            error = await check_bot_access(gw.channel_id)
+            if error:
+                critical_error = error
+        
+        # Получаем инфо для красивой кнопки
         from core.services.channel_service import ChannelService
         chat_info = await ChannelService.get_chat_info_safe(bot, gw.channel_id)
         
         if chat_info:
-            # Безопасное получение ссылки
             link = chat_info['invite_link'] or (f"https://t.me/{chat_info['username']}" if chat_info['username'] else None)
             
             channels_status.append({
@@ -16130,26 +16487,39 @@ async def check_subscriptions_step(message: Message, user_id: int, gw: Giveaway,
             if not is_sub: all_subscribed = False
             
     except Exception as e:
-        # Логируем ошибку получения информации о чате
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Error getting chat info for channel {gw.channel_id}: {e}")
-        pass
+        # Если совсем всё плохо (например, канал удален)
+        critical_error = f"⚠️ Канал розыгрыша недоступен или удален.\nОшибка: {e}"
 
-    # 2. Спонсоры
-    for r in reqs:
-        is_sub = await is_user_subscribed(bot, r.channel_id, user_id, force_check=force_check)
-        
-        # У спонсоров ссылка хранится в БД, но проверим на None
-        link = r.channel_link if r.channel_link and len(r.channel_link) > 5 else None
-        
-        channels_status.append({
-            'title': r.channel_title,
-            'link': link,
-            'is_subscribed': is_sub
-        })
-        if not is_sub: all_subscribed = False
+    # Если уже нашли критическую ошибку - прерываем проверку спонсоров
+    if not critical_error:
+        # 2. Спонсоры
+        for r in reqs:
+            is_sub = await is_user_subscribed(bot, r.channel_id, user_id, force_check=force_check)
+            
+            # ЕСЛИ ПОДПИСКИ НЕТ -> ПРОВЕРЯЕМ, ЖИВ ЛИ БОТ
+            if not is_sub:
+                error = await check_bot_access(r.channel_id)
+                if error:
+                    critical_error = error
+                    break # Прерываем цикл, нет смысла проверять дальше
 
+            link = r.channel_link if r.channel_link and len(r.channel_link) > 5 else None
+            
+            channels_status.append({
+                'title': r.channel_title,
+                'link': link,
+                'is_subscribed': is_sub
+            })
+            if not is_sub: all_subscribed = False
+
+    # --- ОБРАБОТКА РЕЗУЛЬТАТОВ ---
+
+    # Сценарий А: Бот потерял доступ (Критическая ошибка)
+    if critical_error:
+        await message.answer(critical_error)
+        return # Останавливаем процесс регистрации
+
+    # Сценарий Б: Пользователь не подписан (Обычный процесс)
     if not all_subscribed:
         await state.set_state(JoinState.subscribing)
         text = "🔒 <b>Для участия выполните задания:</b>\n(Нажмите на кнопки, подпишитесь и проверьте)"
@@ -16167,22 +16537,16 @@ async def check_subscriptions_step(message: Message, user_id: int, gw: Giveaway,
             )
             if not result:
                 await message.answer(text, reply_markup=kb)
-        except Exception as e:
-            # Логируем ошибку редактирования сообщения
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error editing message: {e}")
+        except Exception:
             await message.answer(text, reply_markup=kb)
+            
+    # Сценарий В: Все отлично
     else:
+        # ... (код удаления сообщения и finalize_registration остается прежним) ...
         from core.services.message_service import MessageHandler
         try:
             await MessageHandler.safe_delete_message(message.bot, message.chat.id, message.message_id)
-        except Exception as e:
-            # Логируем ошибку удаления сообщения
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error deleting message: {e}")
-            pass
+        except: pass
         
         await finalize_registration(message, user_id, gw, session, bot, state)
 
@@ -16609,6 +16973,7 @@ async def open_cabinet(call: CallbackQuery, session: AsyncSession):
         await call.message.edit_text(text, reply_markup=cabinet_kb())
     except TelegramBadRequest:
         await call.answer()=== ./handlers/user/premium.py ===
+from datetime import datetime, timedelta
 from aiogram import Router, types, F, Bot
 from aiogram.types import LabeledPrice, PreCheckoutQuery
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16620,27 +16985,75 @@ router = Router()
 @router.callback_query(F.data == "premium_shop")
 async def show_shop(call: types.CallbackQuery, session: AsyncSession):
     user = await session.get(User, call.from_user.id)
-    status_text = "✅ <b>У вас активен Premium!</b>" if user.is_premium else "❌ У вас нет активной подписки."
     
-    text = (
-        "🧩 <b>Платные функции</b>\n\n"
-        f"Ваш статус: {status_text}\n\n"
-        "<b>🛡 Защита от ботов (Капча)</b>\n"
-        "Заставляет участников пройти проверку перед регистрацией. "
-        "Отсеивает 99% накрутки.\n\n"
-        "Стоимость: <b>50 ⭐️ Stars</b>"
-    )
-    await call.message.edit_text(text, reply_markup=premium_shop_kb())
+    # Проверяем, является ли пользователь администратором
+    from filters.admin_filter import IsAdmin
+    is_admin = await IsAdmin().__call__(call)
+    
+    # Проверяем, активна ли подписка
+    is_premium_active = False
+    if user.is_premium and user.premium_until:
+        if user.premium_until > datetime.utcnow():
+            is_premium_active = True
+        else:
+            # Подписка истекла
+            user.is_premium = False
+            await session.commit()
+    
+    # Для администраторов показываем специальный статус
+    if is_admin:
+        status_text = "👑 <b>Администратор</b>"
+        is_premium_active = True  # Для администратора всегда показываем как активного
+    else:
+        status_text = (
+            f"✅ <b>Активна до:</b> {user.premium_until.strftime('%d.%m.%Y')}"
+            if is_premium_active else "❌ <b>Не активна</b>"
+        )
 
-@router.callback_query(F.data == "buy_captcha")
+    text = (
+        f"👑 <b>PREMIUM ПОДПИСКА</b>\n"
+        f"Статус: {status_text}\n\n"
+        
+        "Оформите единую подписку и разблокируйте <b>ВСЕ</b> возможности для профессиональных розыгрышей:\n\n"
+        
+        "🚀 <b>Буст-билеты и Сторис</b>\n"
+        "Давайте х3-х5 билетов участникам с Telegram Premium или за репост в сторис. Быстрый рост уровня канала!\n\n"
+        
+        "📊 <b>Экспорт базы (Excel/CSV)</b>\n"
+        "Выгружайте ID и юзернеймы участников для таргетинга и аналитики.\n\n"
+        
+        "🕵️ <b>Скрытые участники</b>\n"
+        "Скройте счетчик участников от конкурентов (напишем «Много»).\n\n"
+        
+        "👻 <b>White Label</b>\n"
+        "Полное удаление копирайта «Создано через бота» из сообщений.\n\n"
+        
+        "📈 <b>PRO Аналитика</b>\n"
+        "Детальная статистика по входам, спонсорам и конверсии.\n\n"
+        
+        "🛡 <b>Капча (Анти-бот)</b>\n"
+        "Защита от накрутки фермами.\n\n"
+        
+        "⚡️ <b>Расширенные лимиты</b>\n"
+        "• До 20+ каналов-спонсоров\n"
+        "• Больше одновременных розыгрышей\n\n"
+        
+        "💰 <b>Стоимость: 250 ⭐️ (Stars) / 30 дней</b>"
+    )
+    
+    # Отправляем новое фото или редактируем текст
+    # Лучше отправить новым сообщением, если есть картинка, но пока редактируем
+    await call.message.edit_text(text, reply_markup=premium_shop_kb(is_premium_active))
+
+@router.callback_query(F.data == "buy_premium_sub")
 async def buy_process(call: types.CallbackQuery, bot: Bot):
     await bot.send_invoice(
         chat_id=call.from_user.id,
-        title="Premium Подписка",
-        description="Активация Капчи (Защита от ботов)",
-        payload="buy_premium_captcha", 
-        currency="XTR", 
-        prices=[LabeledPrice(label="Premium", amount=50)], 
+        title="Premium Подписка (30 дней)",
+        description="Разблокировка ВСЕХ функций: Бусты, Excel, White Label, Аналитика, Капча.",
+        payload="buy_monthly_sub",
+        currency="XTR",
+        prices=[LabeledPrice(label="30 дней", amount=250)], # 250 звезд
         provider_token="" # ВАЖНО: Для Telegram Stars поле должно быть пустым!
     )
     await call.answer()
@@ -16653,15 +17066,29 @@ async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
 async def on_successful_payment(message: types.Message, session: AsyncSession):
     payment = message.successful_payment
     
-    if payment.invoice_payload == "buy_premium_captcha":
+    if payment.invoice_payload == "buy_monthly_sub":
         user = await session.get(User, message.from_user.id)
         if user:
-            user.is_premium = True
+            # Логика продления
+            now = datetime.utcnow()
+            
+            # Если подписка уже есть и она активна - добавляем время
+            if user.is_premium and user.premium_until and user.premium_until > now:
+                user.premium_until += timedelta(days=30)
+            else:
+                # Иначе ставим с текущего момента + 30 дней
+                user.is_premium = True
+                user.premium_until = now + timedelta(days=30)
+            
             await session.commit()
             
             await message.answer(
-                "🎉 <b>Оплата прошла успешно!</b>\n"
-                "Функция «Капча» теперь доступна в конструкторе.\n\n"
+                "🎉 <b>Подписка успешно оформлена!</b>\n\n"
+                "Вам доступны все Premium-функции:\n"
+                "• Настраивайте буст-коэффициенты в конструкторе\n"
+                "• Скачивайте отчеты в Excel\n"
+                "• Включайте скрытый режим и White Label\n\n"
+                f"Действует до: {user.premium_until.strftime('%d.%m.%Y')}"
             )=== ./handlers/user/__init__.py ===
 # handlers/user/__init__.py
 from aiogram import Router
@@ -16677,12 +17104,17 @@ router.include_router(my_participations.router)
 router.include_router(my_giveaways.router)
 router.include_router(premium.router)=== ./handlers/user/my_giveaways.py ===
 import logging
+import csv
+import io
 from aiogram import Router, types, Bot, F
+from aiogram.types import BufferedInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
 
 from database.requests.giveaway_repo import get_giveaways_by_owner, get_giveaway_by_id, count_giveaways_by_status
+from database.requests.participant_repo import get_participants_for_export
 from database.models.giveaway import Giveaway
+from database.models.user import User
 from database.models.winner import Winner
 from database.models.participant import Participant
 from database.models.required_channel import GiveawayRequiredChannel
@@ -16739,7 +17171,7 @@ async def manage_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
     if gw.owner_id != call.from_user.id:
         return await call.answer("⛔ Вы не являетесь создателем этого розыгрыша!", show_alert=True)
     
-    stats_info = f"🏆 Приз: {gw.prize_text}\n📅 Финиш: {gw.finish_time.strftime('%d.%m %H:%M')}"
+    stats_info = f"🎁 Розыгрыш: {gw.short_description}\n� Приз: {gw.prize_text}\n📅 Финиш: {gw.finish_time.strftime('%d.%m %H:%M')}"
     
     if gw.status == "active":
         await call.message.edit_text(f"🟢 <b>Активный розыгрыш #{gw.id}</b>\n\n{stats_info}", reply_markup=active_gw_manage_kb(gw.id))
@@ -16851,14 +17283,67 @@ async def delete_gw(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
         await session.execute(delete(GiveawayRequiredChannel).where(GiveawayRequiredChannel.giveaway_id == gw_id))
         # Удаляем сам розыгрыш
         await session.delete(gw)
-        await session.commit()
+        
+        # Используем flush вместо commit, так как мы внутри middleware транзакции
+        await session.flush()
+        
         await call.answer("🗑 Розыгрыш удален.", show_alert=True)
+        
+        # Показываем список только если удаление прошло успешно
+        await show_gw_hub(call, session)
+        
     except Exception as e:
         logger.error(f"DB Delete failed for GW {gw_id}: {e}")
-        await session.rollback()
+        # Не делаем rollback вручную, middleware сделает это если мы пробросим ошибку,
+        # но здесь мы хотим ответить пользователю, поэтому просто логируем и отвечаем.
+        # Сессия может быть "грязной", поэтому лучше не продолжать работу с ней в этом хендлере.
         await call.answer("❌ Ошибка БД при удалении.", show_alert=True)
-        
-    await show_gw_hub(call, session)=== ./handlers/user/my_participations.py ===
+
+# 4. ЭКСПОРТ УЧАСТНИКОВ
+@router.callback_query(F.data.startswith("gw_act:export:"))
+async def export_participants(call: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    from datetime import datetime
+    gw_id = int(call.data.split(":")[2])
+    
+    # 1. Проверка Premium (обязательно!)
+    user = await session.get(User, call.from_user.id)
+    if not user.is_premium or (user.premium_until and user.premium_until < datetime.utcnow()):
+        # Проверяем, является ли пользователь администратором
+        from filters.admin_filter import IsAdmin
+        is_admin = await IsAdmin().__call__(call)
+        if not is_admin:
+            return await call.answer("🔒 Доступно только в Premium подписке!", show_alert=True)
+
+    # 2. Получаем данные
+    participants = await get_participants_for_export(session, gw_id)
+    
+    if not participants:
+        return await call.answer("Участников пока нет.", show_alert=True)
+
+    await call.answer("⏳ Формирую файл...", show_alert=False)
+
+    # 3. Создаем CSV в памяти (используем StringIO)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Заголовки
+    writer.writerow(['User ID', 'Username', 'Full Name', 'Join Date (UTC)'])
+    
+    # Данные
+    for p in participants:
+        # p[0]=id, p[1]=date, p[2]=username, p[3]=fullname
+        username = f"@{p[2]}" if p[2] else "N/A"
+        writer.writerow([p[0], username, p[3], p[1].strftime("%Y-%m-%d %H:%M:%S")])
+    
+    # Перематываем в начало и конвертируем в байты для отправки
+    output.seek(0)
+    document = BufferedInputFile(output.getvalue().encode('utf-8'), filename=f"participants_gw_{gw_id}.csv")
+    
+    await bot.send_document(
+        chat_id=call.from_user.id,
+        document=document,
+        caption=f"📊 <b>Экспорт участников</b>\nВсего записей: {len(participants)}"
+    )=== ./handlers/user/my_participations.py ===
 import math
 from aiogram import Router, types, F, Bot
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -11,5 +11,5 @@ class PendingReferral(Base):
     __tablename__ = "pending_referrals"
 
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True) # Тот, кого пригласили
-    giveaway_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id", ondelete="CASCADE"), primary_key=True)
     referrer_id: Mapped[int] = mapped_column(BigInteger) # Тот, кто пригласил

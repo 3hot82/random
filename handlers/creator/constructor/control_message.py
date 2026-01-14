@@ -6,6 +6,9 @@ from keyboards.inline.constructor import constructor_main_kb
 from handlers.creator.constructor.message_manager import get_message_manager, update_message_manager
 import logging
 
+# Создаем роутер для этого модуля
+router = Router()
+
 logger = logging.getLogger(__name__)
 
 # Тексты подсказок (Возвращены оригинальные, подробные версии)
@@ -171,7 +174,7 @@ async def refresh_constructor_view(
         sponsors_len = len(data.get('sponsors', []))
         
         kb = constructor_main_kb(
-            "Установите время", winners, ref_req, is_cap, has_main, sponsors_len
+            "Установите время", winners, ref_req, is_cap, has_main, sponsors_len, data.get('is_participants_hidden', False)
         )
     
     control_msg = await bot.send_message(chat_id, hint_text, reply_markup=kb)

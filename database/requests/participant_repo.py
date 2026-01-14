@@ -22,14 +22,15 @@ async def add_participant(session: AsyncSession, user_id: int, giveaway_id: int,
     return result.rowcount > 0
 
 async def increment_ticket(session: AsyncSession, user_id: int, giveaway_id: int):
-    stmt = select(Participant).where(
-        Participant.user_id == user_id, 
-        Participant.giveaway_id == giveaway_id
+    from sqlalchemy import update
+    # Это SQL-запрос, он выполняется внутри базы мгновенно и атомарно
+    stmt = (
+        update(Participant)
+        .where(Participant.user_id == user_id, Participant.giveaway_id == giveaway_id)
+        .values(tickets_count=Participant.tickets_count + 1)
     )
-    participant = await session.scalar(stmt)
-    if participant:
-        participant.tickets_count += 1
-        await session.commit()
+    await session.execute(stmt)
+    # commit будет в middleware
 
 async def is_circular_referral(session: AsyncSession, new_user_id: int, referrer_id: int, giveaway_id: int) -> bool:
     stmt = select(Participant).where(
@@ -128,3 +129,17 @@ async def count_user_participations(session: AsyncSession, user_id: int, status:
     if status:
         stmt = stmt.where(Giveaway.status == status)
     return await session.scalar(stmt)
+
+# --- Экспорт участников ---
+async def get_participants_for_export(session: AsyncSession, giveaway_id: int):
+    """Возвращает генератор или список участников с данными User"""
+    from sqlalchemy import select
+    from database.models.user import User
+    
+    stmt = (
+        select(Participant.user_id, Participant.created_at, User.username, User.full_name)
+        .join(User, Participant.user_id == User.user_id)
+        .where(Participant.giveaway_id == giveaway_id)
+    )
+    result = await session.execute(stmt)
+    return result.all()

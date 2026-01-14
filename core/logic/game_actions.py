@@ -1,14 +1,15 @@
 import asyncio
 import logging
 import secrets
+from datetime import datetime
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound, TelegramRetryAfter
 from config import config
 from database import async_session_maker
 from database.requests.giveaway_repo import (
-    get_giveaway_by_id, 
-    get_active_giveaways, 
+    get_giveaway_by_id,
+    get_active_giveaways,
     get_required_channels,
     get_expired_active_giveaways
 )
@@ -39,76 +40,119 @@ async def check_subscription_all(bot: Bot, user_id: int, main_channel_id: int, r
 async def finish_giveaway_task(giveaway_id: int):
     """
     Финальная логика завершения розыгрыша.
-    С защитой от 'мертвых душ'.
+    1. Включает Global Lock (останавливает рассылки).
+    2. Перебирает кандидатов, пока не найдет нужное кол-во подписанных.
+    3. Публикует результаты.
+    4. Выключает Global Lock.
     """
     bot = Bot(
         token=config.BOT_TOKEN.get_secret_value(),
         default=DefaultBotProperties(parse_mode="HTML")
     )
     
+    # Ключ блокировки для "Светофора"
+    LOCK_KEY = "system:high_load"
+
     try:
+        # Импорты для Redis
+        from redis.asyncio import Redis
+        from config import config as bot_config
+        redis = Redis.from_url(bot_config.REDIS_URL)
+        
+        # 1. ВКЛЮЧАЕМ КРАСНЫЙ СВЕТ
+        # Ставим флаг на 5 минут (с запасом, если проверка затянется)
+        await redis.set(LOCK_KEY, "1", ex=300)
+        logging.info(f"🛑 System Locked for GW #{giveaway_id} finish")
+
         bot_info = await bot.get_me()
 
         async with async_session_maker() as session:
             gw = await get_giveaway_by_id(session, giveaway_id)
-            # Проверка статуса (если вдруг он уже завершен другим процессом)
             if not gw or gw.status != 'active':
-                logger.warning(f"GW {giveaway_id} is not active or not found.")
+                logging.warning(f"GW {giveaway_id} is not active or not found.")
                 return
 
             req_channels = await get_required_channels(session, giveaway_id)
-            final_winner_ids = []
             
-            # --- ИСПОЛЬЗУЕМ ОПТИМИЗИРОВАННЫЙ ВЫБОР ПОБЕДИТЕЛЕЙ ЧЕРЕЗ SQL ---
-            from core.logic.randomizer import select_winners_sql
-            all_candidate_ids = await get_all_participant_ids(session, giveaway_id)
+            # Целевое количество победителей
+            target_winners_count = gw.winners_count
+            final_winners_ids = []
             
-            if len(all_candidate_ids) == 0:
-                logger.info(f"No participants for giveaway {giveaway_id}")
-            else:
-                # Выбираем победителей через SQL
-                sql_selected_winners = await select_winners_sql(
-                    session=session,
-                    giveaway_id=giveaway_id,
-                    winners_count=gw.winners_count,
-                    predetermined_winner_id=gw.predetermined_winner_id
+            # Список ID, которые мы уже проверили (чтобы не проверять дважды)
+            checked_ids = set()
+
+            # --- ШАГ А: Проверка "Блатного" (Predetermined) ---
+            if gw.predetermined_winner_id:
+                pid = gw.predetermined_winner_id
+                checked_ids.add(pid)
+                
+                # Проверяем, участвует ли он вообще
+                from database.requests.participant_repo import is_participant_active
+                is_participant = await is_participant_active(session, pid, gw.id)
+                
+                if is_participant:
+                    # Проверяем подписку
+                    if await check_subscription_all(bot, pid, gw.channel_id, req_channels):
+                        final_winners_ids.append(pid)
+                        logging.info(f"Predetermined winner {pid} qualified.")
+                    else:
+                        logging.info(f"Predetermined winner {pid} failed subscription check.")
+                else:
+                    logging.info(f"Predetermined winner {pid} is not a participant.")
+
+            # --- ШАГ Б: Добор случайных победителей (Цикл) ---
+            
+            # Пока не набрали нужное кол-во
+            while len(final_winners_ids) < target_winners_count:
+                
+                needed = target_winners_count - len(final_winners_ids)
+                
+                # Берем с запасом (x5), чтобы лишний раз не дергать БД
+                batch_size = needed * 5
+                if batch_size < 10: batch_size = 10
+                
+                # Получаем пачку случайных кандидатов, исключая уже проверенных
+                candidates = await get_random_candidates_batch(
+                    session, gw.id, batch_size, list(checked_ids)
                 )
                 
-                # Проверяем каждого выбранного победителя на актуальность (подписка, активность)
-                for uid in sql_selected_winners:
+                if not candidates:
+                    logging.info("No more candidates available.")
+                    break # Участники кончились
+                
+                for uid in candidates:
+                    checked_ids.add(uid) # Запоминаем, что проверили
+                    
                     # Проверяем подписку
                     if await check_subscription_all(bot, uid, gw.channel_id, req_channels):
-                        # ПРОВЕРКА НА "ЖИВОГО" ЮЗЕРА
+                        # Проверка на "живого" (не удален ли аккаунт)
                         try:
-                            # Пытаемся отправить "тихое" действие или сообщение
                             await bot.send_chat_action(uid, "typing")
+                            final_winners_ids.append(uid)
                             
-                            # Если ок - добавляем
-                            final_winner_ids.append(uid)
-                            
-                        except (TelegramForbiddenError, TelegramNotFound):
-                            logger.info(f"User {uid} blocked bot or deleted account. Skipping.")
-                            continue
-                        except Exception as e:
-                            logger.error(f"Error checking user {uid}: {e}")
-                            continue
-                    else:
-                        logger.info(f"Winner {uid} no longer meets subscription requirements. Skipping.")
-            
-            # --- ЭТАП 3: Сохранение ---
+                            # Если набрали комплект - выходим из цикла for
+                            if len(final_winners_ids) == target_winners_count:
+                                break
+                        except Exception:
+                            logging.info(f"User {uid} is dead/blocked bot. Skipping.")
+                
+                # Небольшая пауза между батчами, чтобы не убить CPU/DB
+                await asyncio.sleep(0.1)
+
+            # --- ШАГ В: Сохранение и Публикация ---
             gw.status = "finished"
             
-            for uid in final_winner_ids:
+            for uid in final_winners_ids:
                 session.add(Winner(giveaway_id=gw.id, user_id=uid))
             
             await session.commit()
             
             # Формирование текста
-            if not final_winner_ids:
+            if not final_winners_ids:
                 result_text = "😔 <b>Розыгрыш завершен без победителей.</b>"
             else:
                 mentions = []
-                for idx, uid in enumerate(final_winner_ids, 1):
+                for idx, uid in enumerate(final_winners_ids, 1):
                     try:
                         chat = await bot.get_chat(uid)
                         
@@ -181,8 +225,34 @@ async def finish_giveaway_task(giveaway_id: int):
             except Exception as e:
                 logger.error(f"Error publishing results: {e}")
 
+    except Exception as e:
+        logging.error(f"🔥 Critical error finishing GW {giveaway_id}: {e}")
     finally:
+        # 2. ВЫКЛЮЧАЕМ КРАСНЫЙ СВЕТ
+        await redis.delete(LOCK_KEY)
+        logging.info(f"🟢 System Unlocked after GW #{giveaway_id}")
         await bot.session.close()
+
+# --- Вспомогательная SQL функция ---
+async def get_random_candidates_batch(session, giveaway_id, limit, exclude_ids):
+    """
+    Возвращает случайных участников, исключая тех, кто в списке exclude_ids.
+    """
+    from database.models.participant import Participant
+    from sqlalchemy import func
+    
+    stmt = select(Participant.user_id).where(
+        Participant.giveaway_id == giveaway_id
+    )
+    
+    if exclude_ids:
+        stmt = stmt.where(Participant.user_id.notin_(exclude_ids))
+    
+    # Используем RANDOM() для случайной выборки
+    stmt = stmt.order_by(func.random()).limit(limit)
+    
+    result = await session.execute(stmt)
+    return result.scalars().all()
 
 # --- Safety Net: Обработка просроченных ---
 async def process_expired_giveaways():
@@ -203,24 +273,96 @@ async def process_expired_giveaways():
             logging.info("✅ No expired giveaways found.")
 
 # --- Фоновая задача обновления ---
-async def update_active_giveaways_task():
-    """Фоновая задача: обновляет счетчики."""
+async def smart_update_giveaway_task():
+    """
+    Умный воркер: берет ОДИН давно не обновлявшийся розыгрыш,
+    проверяет, изменилось ли кол-во участников значимо,
+    и если да — обновляет пост.
+    """
+    from config import config as bot_config
     bot = Bot(
-        token=config.BOT_TOKEN.get_secret_value(),
+        token=bot_config.BOT_TOKEN.get_secret_value(),
         default=DefaultBotProperties(parse_mode="HTML")
     )
+
+    # Импорты для Redis
+    from redis.asyncio import Redis
+    from config import config as redis_config
+    redis = Redis.from_url(redis_config.REDIS_URL)
     
     try:
-        bot_info = await bot.get_me()
+        # Если горит красный свет - вообще не обновляем посты, это не важно сейчас
+        if await redis.get("system:high_load"):
+            await redis.aclose()
+            return # Просто выходим, попробуем в следующем цикле через 10 сек
         
         async with async_session_maker() as session:
-            active_gws = await get_active_giveaways(session)
+            # 1. Берем самый "старый" по обновлению активный розыгрыш
+            # Сортируем по last_update_at (кто давно не обновлялся — тот первый)
+            from sqlalchemy import select, asc, func
+            from database.models.giveaway import Giveaway
+            stmt = (
+                select(Giveaway)
+                .where(Giveaway.status == "active")
+                .order_by(asc(Giveaway.last_update_at))
+                .limit(1)
+            )
+            gw = await session.scalar(stmt)
+
+            if not gw:
+                return # Нет активных розыгрышей, спим дальше
+
+            # 2. Получаем текущее реальное кол-во участников
+            current_count = await get_participants_count(session, gw.id)
             
-            for gw in active_gws:
+            # 3. Логика "Порога значимости" (Threshold)
+            # Вычисляем разницу с прошлого раза
+            diff = abs(current_count - gw.last_count)
+            
+            # Определяем порог в зависимости от размера аудитории
+            threshold = 1 # По умолчанию
+            if current_count > 1000:
+                threshold = 50 # Если больше 1000, обновляем каждые 50 чел
+            elif current_count > 100:
+                threshold = 10 # Если больше 100, обновляем каждые 10 чел
+            else:
+                threshold = 1  # Если мало, обновляем каждого (для динамики)
+
+            # Проверка времени до конца (если осталось мало времени — обновляем чаще/всегда)
+            from datetime import datetime
+            from datetime import timezone
+            
+            # --- ИСПРАВЛЕНИЕ ОШИБКИ ВРЕМЕНИ ---
+            # Приводим все даты к UTC-aware перед вычитанием
+            def ensure_utc(dt: datetime) -> datetime:
+                """Если дата naive, считаем её UTC. Если aware, оставляем как есть."""
+                if dt.tzinfo is None:
+                    return dt.replace(tzinfo=timezone.utc)
+                return dt
+            
+            now_utc = datetime.now(timezone.utc)
+            finish_time_utc = ensure_utc(gw.finish_time)
+            last_update_utc = ensure_utc(gw.last_update_at)
+            
+            time_left = (finish_time_utc - now_utc).total_seconds()
+            is_urgent = time_left < 3600 # Остался 1 час
+
+            # 4. Принимаем решение: Обновлять или нет?
+            should_update = False
+            
+            if is_urgent:
+                should_update = True # Срочно — обновляем всегда
+            elif diff >= threshold:
+                should_update = True # Набрали достаточно людей — обновляем
+            elif (now_utc - last_update_utc).total_seconds() > 3600:
+                should_update = True # Прошел час без изменений — обновим на всякий случай (актуализация таймера)
+
+            # 5. Выполняем действие
+            if should_update:
                 try:
-                    count = await get_participants_count(session, gw.id)
+                    bot_info = await bot.get_me()
                     new_caption = format_giveaway_caption(
-                        gw.prize_text, gw.winners_count, gw.finish_time, count
+                        gw.prize_text, gw.winners_count, gw.finish_time, current_count, gw.is_participants_hidden
                     )
                     kb = join_keyboard(bot_info.username, gw.id)
 
@@ -235,62 +377,32 @@ async def update_active_giveaways_task():
                             text=new_caption, reply_markup=kb, disable_web_page_preview=True
                         )
                     
-                    # --- ИЗМЕНЕНИЕ: Увеличенная задержка для защиты от FloodWait ---
-                    # 1.5 секунды - безопасный интервал для массовых обновлений
-                    await asyncio.sleep(1.5)
-                    # -------------------------------------------------------------
-
-                except TelegramForbiddenError as e:
-                    # Бот был удален из админов или заблокирован
-                    logger.error(f"Bot lost access to channel {gw.channel_id} for giveaway {gw.id}: {e}")
-                    # Обновляем статус розыгрыша в базе данных
-                    gw.status = 'paused_error'
-                    try:
-                        await session.commit()
-                        # Отправляем уведомление владельцу
-                        try:
-                            await bot.send_message(
-                                chat_id=gw.owner_id,
-                                text=f"⚠️ Я потерял доступ к каналу. Розыгрыш приостановлен. Верните админку и нажмите 'Обновить'.\nID розыгрыша: {gw.id}"
-                            )
-                        except Exception as notify_error:
-                            logger.error(f"Failed to notify owner about access loss: {notify_error}")
-                    except Exception as db_error:
-                        logger.error(f"Failed to update giveaway status after access loss: {db_error}")
-                        
-                except TelegramBadRequest as e:
-                    if "message to edit not found" in str(e).lower():
-                        # Пост удален вручную
-                        logger.error(f"Post was deleted manually for giveaway {gw.id}: {e}")
-                        # Обновляем статус розыгрыша в базе данных
-                        gw.status = 'cancelled'
-                        try:
-                            await session.commit()
-                            # Отправляем уведомление владельцу
-                            try:
-                                await bot.send_message(
-                                    chat_id=gw.owner_id,
-                                    text=f"⚠️ Пост с розыгрышем был удален вручную. Розыгрыш отменен.\nID розыгрыша: {gw.id}"
-                                )
-                            except Exception as notify_error:
-                                logger.error(f"Failed to notify owner about post deletion: {notify_error}")
-                        except Exception as db_error:
-                            logger.error(f"Failed to update giveaway status after post deletion: {db_error}")
-                    elif "message is not modified" in str(e).lower():
-                        # Сообщение не изменилось, это нормально
-                        continue
-                    else:
-                        logger.error(f"BadRequest error updating GW {gw.id}: {e}")
-                        
-                except TelegramRetryAfter as e:
-                    # Если все-таки словили флуд, ждем сколько просят
-                    logger.warning(f"FloodWait updating GW {gw.id}. Sleeping {e.retry_after}s")
-                    await asyncio.sleep(e.retry_after)
+                    # Запоминаем новое состояние
+                    gw.last_count = current_count
+                    logger.info(f"✅ Smart update GW #{gw.id}: count {current_count}")
                     
                 except Exception as e:
-                    logger.error(f"Unexpected error updating GW {gw.id}: {e}")
-                    
+                    # Проверяем, является ли ошибка "message is not modified"
+                    if "message is not modified" in str(e).lower():
+                        # Не логируем как ошибку, это нормальное поведение
+                        logger.debug(f"ℹ️ Skipped update for GW #{gw.id}: message content unchanged")
+                    else:
+                        logger.warning(f"⚠️ Failed update GW #{gw.id}: {e}")
+                    # Здесь можно добавить обработку ошибок (как в старом коде),
+                    # но главное — мы не блокируем очередь.
+            
+            # 6. В ЛЮБОМ СЛУЧАЕ обновляем время проверки
+            # Это переместит розыгрыш в конец очереди (он станет "самым свежим")
+            gw.last_update_at = now_utc
+            await session.commit()
+
+    except asyncio.CancelledError:  # Задача была отменена при выключении бота, это нормально
+        pass
+
+    except Exception as e:
+        logger.error(f"Smart worker error: {e}")
     finally:
+        await redis.aclose()
         await bot.session.close()
 
 

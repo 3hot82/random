@@ -8,7 +8,7 @@ from filters.admin_filter import IsAdmin
 from keyboards.admin_keyboards import get_main_admin_menu_keyboard
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.rate_limiter import admin_rate_limiter
-from utils.exception_handler import admin_errors_handler
+# from utils.exception_handler import admin_errors_handler # Удаляем импорт, если он не используется больше нигде
 
 # Инициализация роутера
 admin_router = Router()
@@ -40,7 +40,7 @@ from middlewares.admin_middleware import AdminRateLimitMiddleware
 admin_router.callback_query.middleware(AdminRateLimitMiddleware())
 
 
-# Обработчик ошибок для всего роутера
-@admin_router.errors()
-async def errors_handler(update, error):
-    admin_errors_handler(update, error)
+# УДАЛЕНО: Обработчик ошибок для всего роутера
+# @admin_router.errors()
+# async def errors_handler(update, error):
+#     admin_errors_handler(update, error)

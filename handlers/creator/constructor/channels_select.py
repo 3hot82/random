@@ -6,6 +6,8 @@ import logging
 from database.requests.channel_repo import get_user_channels
 from keyboards.inline.constructor import channel_selection_kb
 from handlers.creator.constructor.control_message import refresh_constructor_view
+from keyboards.inline.dashboard import channels_list_kb
+from database.models.user import User
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -53,6 +55,15 @@ async def select_main_menu(call: types.CallbackQuery, session: AsyncSession, sta
 
 @router.callback_query(F.data == "constr_select_sponsors")
 async def select_sponsors_menu(call: types.CallbackQuery, session: AsyncSession, state: FSMContext, bot: Bot):
+    from datetime import datetime
+    user = await session.get(User, call.from_user.id)
+    # Проверяем, является ли пользователь администратором
+    from filters.admin_filter import IsAdmin
+    is_admin = await IsAdmin().__call__(call)
+    
+    if not is_admin and (not user or not user.is_premium or (user.premium_until and user.premium_until < datetime.utcnow())):
+        return await call.answer("🔒 Выбор более 5 спонсоров доступен только с Premium!", show_alert=True)
+    
     await state.update_data(channel_selector_mode="sponsor")
     await show_channels_selection(bot, state, session, call.from_user.id, "sponsor", call.message.chat.id)
     await call.answer()
@@ -111,3 +122,26 @@ async def set_channel(call: types.CallbackQuery, state: FSMContext, bot: Bot, se
         
         # Обновляем вид (остаемся в меню выбора sponsors)
         await show_channels_selection(bot, state, session, call.from_user.id, "sponsor", call.message.chat.id)
+
+
+@router.callback_query(F.data == "add_new_channel_constr")
+async def add_new_channel_from_constructor(call: types.CallbackQuery, session: AsyncSession, state: FSMContext):
+    """
+    Обработка добавления нового канала из конструктора
+    """
+    # Получаем текущий режим (main или sponsor)
+    data = await state.get_data()
+    mode = data.get('channel_selector_mode', 'sponsor')  # По умолчанию sponsor
+    
+    # Получаем список каналов пользователя
+    from database.requests.channel_repo import get_user_channels
+    channels = await get_user_channels(session, call.from_user.id)
+    
+    # Показываем клавиатуру с имеющимися каналами и возможностью добавить новый
+    kb = channels_list_kb(channels)
+    await call.message.edit_text(
+        "📡 <b>Мои каналы</b>\n\n"
+        "Выберите канал из списка или добавьте новый:",
+        reply_markup=kb
+    )
+    await call.answer()

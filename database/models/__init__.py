@@ -6,6 +6,8 @@ from .channel import Channel
 from .required_channel import GiveawayRequiredChannel
 from .pending_referral import PendingReferral
 from .admin_models import AdminLog, Broadcast, ScheduledBroadcast
+from .conversion_funnels import ConversionFunnel, GiveawayHistory, ChannelAnalytics
+from .premium_features import SubscriptionTier, UserSubscription, PremiumFeatureUsage
 
 __all__ = [
     "User",
@@ -17,5 +19,11 @@ __all__ = [
     "PendingReferral",
     "AdminLog",
     "Broadcast",
-    "ScheduledBroadcast"
+    "ScheduledBroadcast",
+    "ConversionFunnel",
+    "GiveawayHistory",
+    "ChannelAnalytics",
+    "SubscriptionTier",
+    "UserSubscription",
+    "PremiumFeatureUsage"
 ]

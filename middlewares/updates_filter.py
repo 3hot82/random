@@ -30,7 +30,7 @@ class UpdatesFilterMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         # Всегда пропускаем платежи, даже если бот лежал час
-        if event.successful_payment or event.invoice_payload:
+        if event.successful_payment or (hasattr(event, 'invoice_payload') and event.invoice_payload):
             return await handler(event, data)
 
         # Проверка времени

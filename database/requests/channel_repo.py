@@ -4,12 +4,13 @@ from sqlalchemy.dialects.postgresql import insert
 from database.models.channel import Channel
 
 async def add_channel(
-    session: AsyncSession, 
-    user_id: int, 
-    channel_id: int, 
-    title: str, 
-    username: str | None, 
-    invite_link: str | None
+    session: AsyncSession,
+    user_id: int,
+    channel_id: int,
+    title: str,
+    username: str | None,
+    invite_link: str | None,
+    chat_type: str = "channel"
 ):
     """
     Добавляет или обновляет канал с инвайт-ссылкой.
@@ -19,10 +20,11 @@ async def add_channel(
         channel_id=channel_id,
         title=title,
         username=username,
-        invite_link=invite_link
+        invite_link=invite_link,
+        type=chat_type
     ).on_conflict_do_update(
-        index_elements=['id'], 
-        set_=dict(title=title, username=username, invite_link=invite_link)
+        index_elements=['id'],
+        set_=dict(title=title, username=username, invite_link=invite_link, type=chat_type)
     )
     
     # Проверка на существование для надежности (альтернатива on_conflict для некоторых БД)
@@ -31,13 +33,15 @@ async def add_channel(
         existing.title = title
         existing.username = username
         existing.invite_link = invite_link
+        existing.type = chat_type
     else:
         session.add(Channel(
-            user_id=user_id, 
-            channel_id=channel_id, 
-            title=title, 
-            username=username, 
-            invite_link=invite_link
+            user_id=user_id,
+            channel_id=channel_id,
+            title=title,
+            username=username,
+            invite_link=invite_link,
+            type=chat_type
         ))
     
     # commit будет выполнен в middleware

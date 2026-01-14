@@ -12,13 +12,16 @@ class User(Base):
     
     # --- Monetization ---
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
-    premium_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    premium_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # --- Timestamps ---
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
     
     # Связь с розыгрышами (владелец)
     giveaways: Mapped[list["Giveaway"]] = relationship("Giveaway", back_populates="owner", lazy="selectin")
+    
+    # Связь с премиум-подписками
+    subscriptions: Mapped[list["UserSubscription"]] = relationship("UserSubscription", back_populates="user", lazy="selectin")
 
     def __repr__(self):
         return f"<User {self.user_id}>"

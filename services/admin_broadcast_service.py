@@ -10,11 +10,15 @@ import traceback
 # Добавляем импорт для создания сессии внутри функции восстановления
 from database import async_session_maker
 
+from redis.asyncio import Redis
+from config import config
+
 class BroadcastService:
     def __init__(self, bot: Bot, session: AsyncSession):
         self.bot = bot
         self.session = session
         self.logger = logging.getLogger('broadcast')
+        self.redis = Redis.from_url(config.REDIS_URL)
     
     async def create_broadcast(self, message_text: str = None, photo_file_id: str = None,
                               video_file_id: str = None, document_file_id: str = None,
@@ -80,6 +84,11 @@ class BroadcastService:
             
             # Отправляем сообщение каждому пользователю
             for user_id in user_ids:
+                # ПРОВЕРКА СВЕТОФОРА
+                # Если идет выбор победителя, ждем, пока он закончит
+                while await self.redis.get("system:high_load"):
+                    await asyncio.sleep(2)  # Спим 2 секунды и проверяем снова
+                
                 try:
                     success = await self._send_single_message(user_id, broadcast)
                     if success:
@@ -89,8 +98,9 @@ class BroadcastService:
                 except Exception as e:
                     blocked_count += 1
                 
-                # Делаем паузу, чтобы не превысить лимиты Telegram
-                await asyncio.sleep(0.05)  # 50ms delay
+                # ОГРАНИЧИТЕЛЬ СКОРОСТИ (чтобы не забить канал полностью)
+                # 0.1 сек = 10 сообщений в секунду. Оставляем запас для юзеров.
+                await asyncio.sleep(0.1)
             
             # Обновляем статистику и завершаем
             await self.session.execute(
@@ -227,3 +237,7 @@ async def recover_stuck_broadcasts(bot: Bot):
             
         except Exception as e:
             logging.error(f"Error during broadcast recovery: {e}")
+    
+    async def close(self):
+        """Закрытие соединения с Redis"""
+        await self.redis.aclose()

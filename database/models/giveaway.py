@@ -11,9 +11,10 @@ class Giveaway(Base):
     channel_id: Mapped[int] = mapped_column(BigInteger)
     message_id: Mapped[int] = mapped_column(BigInteger)
     
+    short_description: Mapped[str] = mapped_column(String(255), nullable=True) # Краткое описание розыгрыша
     prize_text: Mapped[str] = mapped_column(Text)
     winners_count: Mapped[int] = mapped_column(Integer, default=1)
-    finish_time: Mapped[datetime] = mapped_column(DateTime)
+    finish_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     
     status: Mapped[str] = mapped_column(String, default="active")
     
@@ -26,16 +27,23 @@ class Giveaway(Base):
 
     media_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
     media_type: Mapped[str | None] = mapped_column(String, nullable=True)
-    
     # Дополнительные настройки
     is_referral_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     is_captcha_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     is_paid: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_participants_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # НОВЫЕ ПОЛЯ ДЛЯ УМНОГО ОБНОВЛЕНИЯ
+    last_update_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)  # Когда обновляли пост последний раз
+    last_count: Mapped[int] = mapped_column(Integer, default=0)  # Сколько было участников при последнем обновлении
+
 
     # Связи с другими моделями
     owner: Mapped["User"] = relationship("User", back_populates="giveaways", lazy="selectin")
-    required_channels: Mapped[list["GiveawayRequiredChannel"]] = relationship("GiveawayRequiredChannel", back_populates="giveaway", lazy="selectin")
-    participants: Mapped[list["Participant"]] = relationship("Participant", back_populates="giveaway", lazy="selectin")
+    required_channels: Mapped[list["GiveawayRequiredChannel"]] = relationship("GiveawayRequiredChannel", back_populates="giveaway", lazy="selectin", cascade="all, delete-orphan")
+    participants: Mapped[list["Participant"]] = relationship("Participant", back_populates="giveaway", lazy="selectin", cascade="all, delete-orphan")
+    conversion_funnel: Mapped["ConversionFunnel"] = relationship("ConversionFunnel", back_populates="giveaway", uselist=False, lazy="selectin", cascade="all, delete-orphan")
+    history: Mapped["GiveawayHistory"] = relationship("GiveawayHistory", back_populates="giveaway", uselist=False, lazy="selectin", cascade="all, delete-orphan")
 
 # Индексы для оптимизации производительности
 Index('idx_giveaways_status', Giveaway.status)

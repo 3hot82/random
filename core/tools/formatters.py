@@ -1,7 +1,7 @@
 from datetime import datetime
 from core.tools.timezone import to_msk
 
-def format_giveaway_caption(prize_text: str, winners_count: int, finish_time: datetime, participants_count: int) -> str:
+def format_giveaway_caption(prize_text: str, winners_count: int, finish_time: datetime, participants_count: int, is_hidden: bool = False) -> str:
     # Переводим время в МСК для отображения
     finish_msk = to_msk(finish_time)
     
@@ -20,10 +20,16 @@ def format_giveaway_caption(prize_text: str, winners_count: int, finish_time: da
 
     date_str = finish_msk.strftime("%d.%m.%Y %H:%M MSK")
 
+    # ЛОГИКА СКРЫТИЯ
+    if is_hidden:
+        part_text = "🔥 Много" # Или "Скрыто", или просто не выводить строку
+    else:
+        part_text = str(participants_count)
+
     return (
         f"{prize_text}\n\n"
-        f"➖➖➖➖➖➖➖➖➖➖\n"
-        f"👥 <b>Участников:</b> {participants_count}\n"
+        f"➖➖➖➖➖\n"
+        f"👥 <b>Участников:</b> {part_text}\n"
         f"🏆 <b>Призовых мест:</b> {winners_count}\n"
         f"⏳ <b>Итоги:</b> {date_str} ({time_left})"
     )

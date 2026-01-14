@@ -1,3 +1,4 @@
+
 import asyncio
 import logging
 import signal
@@ -11,7 +12,7 @@ from config import config
 from database import engine, Base
 from core.tools.scheduler import start_scheduler, scheduler, shutdown_scheduler
 from core.tools.broadcast_scheduler import start_broadcast_scheduler, broadcast_scheduler, shutdown_broadcast_scheduler
-from core.logic.game_actions import update_active_giveaways_task, process_expired_giveaways
+from core.logic.game_actions import smart_update_giveaway_task, process_expired_giveaways
 from services.admin_broadcast_service import recover_stuck_broadcasts
 
 from middlewares.db_session import DbSessionMiddleware
@@ -62,6 +63,10 @@ async def graceful_shutdown(signum=None, frame=None):
 async def main():
     logging.basicConfig(level=logging.INFO)
     
+    # Отключаем спам в логах от планировщика (показываем только ошибки)
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
+    
     # Инициализация БД
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -101,7 +106,16 @@ async def main():
     await recover_stuck_broadcasts(bot)
 
     # Запуск планировщиков
-    scheduler.add_job(update_active_giveaways_task, "interval", minutes=30, id="global_updater", replace_existing=True)
+    # Запускаем "Карусель": каждые 10 секунд обрабатываем 1 розыгрыш
+    # Это 360 обновлений в час — абсолютно безопасно для Telegram API
+    scheduler.add_job(
+        smart_update_giveaway_task,
+        "interval",
+        seconds=10,  # <-- Частота "тиков" карусели
+        id="smart_updater",
+        replace_existing=True,
+        max_instances=1 # Защита: не запускать новый, если старый завис
+    )
     await start_scheduler()
     await start_broadcast_scheduler()
 

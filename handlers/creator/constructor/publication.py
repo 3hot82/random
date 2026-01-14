@@ -9,7 +9,7 @@ from keyboards.inline.participation import join_keyboard
 from core.tools.scheduler import scheduler
 from core.logic.game_actions import finish_giveaway_task
 from core.tools.formatters import format_giveaway_caption
-from core.tools.timezone import to_utc, strip_tz
+from core.tools.timezone import to_utc
 from handlers.creator.constructor.message_manager import get_message_manager
 
 logger = logging.getLogger(__name__)
@@ -33,12 +33,11 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
     try:
         finish_dt_msk = datetime.fromisoformat(data['finish_time_str'])
         finish_dt_utc = to_utc(finish_dt_msk)
-        finish_dt_db = strip_tz(finish_dt_utc) 
     except ValueError:
         return await call.answer("❌ Ошибка формата времени", show_alert=True)
     
     bot_info = await bot.get_me()
-    caption = format_giveaway_caption(data['text'], data['winners'], finish_dt_utc, 0)
+    caption = format_giveaway_caption(data['text'], data['winners'], finish_dt_utc, 0, data.get('is_participants_hidden', False))
     keyboard = join_keyboard(bot_info.username, 0)
     
     # 1. Публикация в канал
@@ -56,12 +55,14 @@ async def publish_giveaway(call: types.CallbackQuery, state: FSMContext, session
     # 2. Сохранение в БД
     try:
         gw_id = await create_giveaway(
-            session, call.from_user.id, main_ch['id'], msg.message_id, 
-            data['text'], data['winners'], finish_dt_db,
-            data['media_file_id'], data['media_type'], 
-            data['sponsors'], 
-            is_referral=(data['ref_req'] > 0), 
-            is_captcha=data['is_captcha']
+            session, call.from_user.id, main_ch['id'], msg.message_id,
+            data['text'], data['winners'], finish_dt_utc,
+            data['media_file_id'], data['media_type'],
+            data['sponsors'],
+            is_referral=(data['ref_req'] > 0),
+            is_captcha=data['is_captcha'],
+            short_description=data.get('short_description', ''),
+            is_participants_hidden=data.get('is_participants_hidden', False)
         )
     except Exception as e:
         logger.critical(f"DB Error: {e}")

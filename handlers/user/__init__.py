@@ -1,7 +1,7 @@
 # handlers/user/__init__.py
 from aiogram import Router
 
-from . import dashboard, my_channels, my_participations, my_giveaways, premium
+from . import dashboard, my_channels, my_participations, my_giveaways, premium, premium_handler
 
 router = Router()
 
@@ -11,3 +11,4 @@ router.include_router(my_channels.router)
 router.include_router(my_participations.router)
 router.include_router(my_giveaways.router)
 router.include_router(premium.router)
+router.include_router(premium_handler.router)

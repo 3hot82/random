@@ -8,14 +8,14 @@ class Participant(Base):
     __tablename__ = "participants"
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), primary_key=True)
-    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), primary_key=True)
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id", ondelete="CASCADE"), primary_key=True)
     
     # Добавляем уникальный индекс для предотвращения дубликатов
     __table_args__ = (
         # Уникальный индекс для предотвращения дубликатов участников в одном розыгрыше
         UniqueConstraint('user_id', 'giveaway_id', name='unique_user_giveaway'),
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     # Кол-во шансов (билетов)
     tickets_count: Mapped[int] = mapped_column(Integer, default=1) 

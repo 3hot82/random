@@ -6,6 +6,7 @@ from .admin_stats_keyboards import *
 from .admin_users_keyboards import *
 from .admin_giveaways_keyboards import *
 from .admin_broadcast_keyboards import *
+from .inline.user_panel import *
 
 __all__ = [
     # callback_data
@@ -54,5 +55,8 @@ __all__ = [
     'get_broadcast_preview_keyboard',
     'get_broadcast_history_pagination_keyboard',
     'get_broadcast_detail_actions_keyboard',
-    'get_scheduled_broadcasts_pagination_keyboard'
+    'get_scheduled_broadcasts_pagination_keyboard',
+    # user panel keyboards
+    'get_premium_features_keyboard',
+    'get_subscription_management_keyboard'
 ]

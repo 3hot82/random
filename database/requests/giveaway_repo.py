@@ -1,23 +1,31 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, desc, func
 from database.models.giveaway import Giveaway
 from database.models.required_channel import GiveawayRequiredChannel
 
+# Определяем UTC как временную зону
+UTC = ZoneInfo("UTC")
+
 async def create_giveaway(
-    session: AsyncSession, owner_id: int, channel_id: int, 
+    session: AsyncSession, owner_id: int, channel_id: int,
     message_id: int, prize: str, winners: int, end_time: datetime,
     media_file_id: str = None, media_type: str = None,
     sponsors: list = None,
     is_referral: bool = False,
-    is_captcha: bool = False
+    is_captcha: bool = False,
+    short_description: str = None,
+    is_participants_hidden: bool = False
 ) -> int:
     new_gw = Giveaway(
         owner_id=owner_id, channel_id=channel_id, message_id=message_id,
         prize_text=prize, winners_count=winners, finish_time=end_time,
         media_file_id=media_file_id, media_type=media_type,
         is_referral_enabled=is_referral,
-        is_captcha_enabled=is_captcha
+        is_captcha_enabled=is_captcha,
+        short_description=short_description,
+        is_participants_hidden=is_participants_hidden
     )
     session.add(new_gw)
     await session.flush()
@@ -53,7 +61,7 @@ async def get_expired_active_giveaways(session: AsyncSession):
     """Возвращает активные розыгрыши, время которых истекло"""
     stmt = select(Giveaway).where(
         Giveaway.status == "active",
-        Giveaway.finish_time <= datetime.utcnow()
+        Giveaway.finish_time <= datetime.now(UTC)
     )
     result = await session.execute(stmt)
     return result.scalars().all()

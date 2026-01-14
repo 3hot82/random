@@ -93,31 +93,56 @@ async def receive_content(message: types.Message, state: FSMContext, bot: Bot):
     html_content = get_message_html(message)
     safe_text = sanitize_text(html_content)
     
-    # 3. ЖЕСТКАЯ проверка лимитов Telegram
-    # Если есть медиа -> лимит 1024. Если нет -> 4096.
-    limit = 1024 if media_type else 4096
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     
-    if len(safe_text) > limit:
+    # Определяем лимиты Telegram
+    TELEGRAM_CAPTION_LIMIT = 1024
+    TELEGRAM_TEXT_LIMIT = 4096
+    
+    # Резервируем место под "Футер" (Кол-во участников, таймер и т.д.)
+    # Берем с запасом, чтобы точно влезло
+    FOOTER_RESERVE = 200
+    
+    # Вычисляем реальный лимит для пользователя
+    if media_type:
+        # Если есть фото/видео
+        limit = TELEGRAM_CAPTION_LIMIT - FOOTER_RESERVE # 1024 - 200 = 824
+        limit_name = "подписи к медиа"
+    else:
+        # Если только текст
+        limit = TELEGRAM_TEXT_LIMIT - FOOTER_RESERVE # 4096 - 200 = 3896
+        limit_name = "сообщения"
+    
+    current_len = len(safe_text)
+
+    # ПРОВЕРКА
+    if current_len > limit:
+        diff = current_len - limit
+        
         if media_type:
             text_err = (
-                f"❌ <b>Слишком длинное описание для медиа!</b>\n\n"
-                f"Telegram ограничивает подпись к фото/видео до <b>1024 символов</b>.\n"
-                f"У вас: {len(safe_text)} символов.\n\n"
-                f"📉 <b>Что делать:</b>\n"
-                f"1. Сократите текст.\n"
-                f"2. Или отправьте текст БЕЗ картинки (тогда лимит 4096)."
+                f"❌ <b>Слишком длинное описание!</b>\n\n"
+                f"Telegram ограничивает длину подписи к фото/видео до <b>1024</b> символов.\n"
+                f"Мы резервируем <b>{FOOTER_RESERVE}</b> символов для счетчика участников и таймера.\n\n"
+                f"📏 Ваш текст: <b>{current_len}</b>\n"
+                f"⛔ Лимит: <b>{limit}</b>\n"
+                f"✂️ Нужно сократить на: <b>{diff}</b> символов.\n\n"
+                f"💡 <i>Совет: Отправьте текст отдельным сообщением (без картинки), тогда лимит будет 4000 символов.</i>"
             )
         else:
             text_err = (
                 f"❌ <b>Текст слишком длинный!</b>\n\n"
-                f"Лимит Telegram: <b>4096 символов</b>.\n"
-                f"У вас: {len(safe_text)}."
+                f"📏 Ваш текст: <b>{current_len}</b>\n"
+                f"⛔ Лимит (с учетом футера): <b>{limit}</b>\n"
+                f"✂️ Нужно сократить на: <b>{diff}</b> символов."
             )
             
         err_msg = await message.answer(text_err)
         manager.add_temp_message(err_msg)
         await update_message_manager(state, manager)
         return
+
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     # 4. Проверка на пустоту (если прислали только картинку без текста, или текст пустой)
     # Хотя пустая картинка допустима, но для розыгрыша нужен текст условий.
@@ -136,7 +161,46 @@ async def receive_content(message: types.Message, state: FSMContext, bot: Bot):
     
     # 5. Сохраняем данные
     await state.update_data(text=safe_text, media_file_id=media_id, media_type=media_type)
+    await state.set_state(ConstructorState.editing_short_description)
+    
+    # 6. Запрашиваем краткое описание
+    hint_text = "📝 <b>Шаг 2 из 7: Краткое описание</b>\n\nВведите краткое описание вашего розыгрыша (например, \"iPhone 17\", \"30 подарков\", \"VIP-доступ\", \"Неделя призов\"). Это описание будет использоваться для быстрого просмотра в списке розыгрышей."
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_creation")]
+    ])
+    
+    msg = await message.answer(hint_text, reply_markup=kb)
+    manager = await get_message_manager(state)
+    manager.add_temp_message(msg)
+    await update_message_manager(state, manager)
+
+@router.message(ConstructorState.editing_short_description)
+async def receive_short_description(message: types.Message, state: FSMContext, bot: Bot):
+    # Удаляем сообщение пользователя
+    try: await message.delete()
+    except: pass
+
+    manager = await get_message_manager(state)
+    
+    # Получаем текст описания
+    short_description = message.text.strip() if message.text else ""
+    
+    if not short_description:
+        err_msg = await message.answer("❌ Краткое описание не может быть пустым. Пожалуйста, введите краткое описание розыгрыша.")
+        manager.add_temp_message(err_msg)
+        await update_message_manager(state, manager)
+        return
+    
+    # Проверяем длину описания
+    if len(short_description) > 255:
+        err_msg = await message.answer("❌ Краткое описание слишком длинное. Пожалуйста, сократите его до 255 символов.")
+        manager.add_temp_message(err_msg)
+        await update_message_manager(state, manager)
+        return
+
+    # Сохраняем краткое описание
+    await state.update_data(short_description=short_description)
     await state.set_state(ConstructorState.init)
     
-    # 6. Перерисовка интерфейса
+    # Перерисовка интерфейса
     await refresh_constructor_view(bot, state, message.chat.id, hint_key='main_channel')
