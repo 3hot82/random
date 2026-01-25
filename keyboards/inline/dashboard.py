@@ -98,8 +98,18 @@ def back_to_dash() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔙 Назад", callback_data="cabinet_hub")]
     ])
 
+def back_to_constructor() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_constructor")]
+    ])
+
 def skip_link_kb(mode="settings") -> InlineKeyboardMarkup:
-    callback = "skip_link_settings" if mode == "settings" else "skip_link_constr"
+    if mode == "settings":
+        callback = "skip_link_settings"
+    elif mode == "sponsor":
+        callback = "skip_link_sponsor"
+    else:
+        callback = "skip_link_constr"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏩ Пропустить", callback_data=callback)]
     ])

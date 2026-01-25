@@ -1,5 +1,5 @@
 from datetime import datetime
-from aiogram import Router, types, Bot
+from aiogram import Router, types, Bot, F
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from keyboards.inline.constructor import constructor_main_kb
@@ -182,3 +182,45 @@ async def refresh_constructor_view(
     
     # Сохраняем новые ID
     await update_message_manager(state, manager)
+
+
+@router.callback_query(F.data == "constr_back_main")
+async def back_to_main_menu(call: types.CallbackQuery, state: FSMContext, bot: Bot):
+    """
+    Возврат к главному меню конструктора
+    """
+    await refresh_constructor_view(bot, state, call.message.chat.id, hint_key='publish')
+    await call.answer()
+
+
+@router.callback_query(F.data == "back_to_constructor")
+async def back_to_constructor(call: types.CallbackQuery, state: FSMContext, bot: Bot):
+    """
+    Возврат к интерфейсу выбора каналов в конструкторе
+    """
+    # Получаем сохраненный режим выбора каналов
+    data = await state.get_data()
+    saved_mode = data.get('saved_channel_selector_mode')
+    
+    if saved_mode:
+        # Возвращаемся к сохраненному режиму выбора каналов
+        from database.requests.channel_repo import get_user_channels
+        from keyboards.inline.constructor import channel_selection_kb
+        
+        channels = await get_user_channels(session=call.bot.session, user_id=call.from_user.id)
+        
+        if saved_mode == 'main':
+            sel = [data['main_channel']['id']] if data.get('main_channel') else []
+            hint_key = 'main_channel'
+        else:
+            main_id = data['main_channel']['id'] if data.get('main_channel') else None
+            channels = [ch for ch in channels if ch.channel_id != main_id]
+            sel = [s['id'] for s in data.get('sponsors', [])]
+            hint_key = 'sponsors'
+        
+        kb = channel_selection_kb(channels, saved_mode, sel)
+        await refresh_constructor_view(bot, state, call.message.chat.id, hint_key=hint_key, custom_keyboard=kb)
+    else:
+        # Если нет сохраненного режима, возвращаем к главному меню конструктора
+        await refresh_constructor_view(bot, state, call.message.chat.id, hint_key='publish')
+    await call.answer()

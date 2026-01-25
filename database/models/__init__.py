@@ -8,6 +8,7 @@ from .pending_referral import PendingReferral
 from .admin_models import AdminLog, Broadcast, ScheduledBroadcast
 from .conversion_funnels import ConversionFunnel, GiveawayHistory, ChannelAnalytics
 from .premium_features import SubscriptionTier, UserSubscription, PremiumFeatureUsage
+from .boost_history import BoostTicket
 
 __all__ = [
     "User",
@@ -25,5 +26,6 @@ __all__ = [
     "ChannelAnalytics",
     "SubscriptionTier",
     "UserSubscription",
-    "PremiumFeatureUsage"
+    "PremiumFeatureUsage",
+    "BoostTicket"
 ]
