@@ -39,8 +39,8 @@ def constructor_main_kb(
     # НОВАЯ КНОПКА ОТМЕНЫ
     builder.button(text="❌ Отмена", callback_data="cancel_creation")
     
-    # Сетка кнопок: 2, 2, 2, 1, 1, 1, 1
-    builder.adjust(2, 2, 2, 1, 1, 1, 1)
+    # Сетка кнопок: теперь делаем более читаемую сетку - по одной кнопке в строке
+    builder.adjust(1, 1, 1, 1, 1, 1, 1, 1, 1)
     return builder.as_markup()
 
 def winners_selector_kb() -> InlineKeyboardMarkup:
@@ -55,8 +55,8 @@ def winners_selector_kb() -> InlineKeyboardMarkup:
     builder.button(text="✏️ Ввести число", callback_data="constr_set_winners_input")
     builder.button(text="🔙 Назад", callback_data="constr_back_main")
     
-    # Сетка: 4 в ряду, затем 1
-    builder.adjust(4, 4, 1)
+    # Сетка: теперь по одной кнопке в строке для лучшей читаемости
+    builder.adjust(1, 1, 1, 1, 1, 1, 1, 1, 1)
     return builder.as_markup()
 
 def referral_selector_kb() -> InlineKeyboardMarkup:
@@ -69,7 +69,8 @@ def referral_selector_kb() -> InlineKeyboardMarkup:
     builder.button(text="✏️ Ввести число", callback_data="constr_set_ref_input")
     builder.button(text="🔙 Назад", callback_data="constr_back_main")
     
-    builder.adjust(2, 2, 1)
+    # Сетка: теперь по одной кнопке в строке для лучшей читаемости
+    builder.adjust(1, 1, 1, 1, 1)
     return builder.as_markup()
 
 
@@ -79,30 +80,26 @@ def get_channels_management_keyboard() -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     
-    builder.row(
-        InlineKeyboardButton(
-            text="📢 Добавить канал-спонсор",
-            callback_data="add_sponsor_channel"
-        )
+    # Делаем кнопки более широкими для лучшей читаемости
+    builder.button(
+        text="📢 Добавить канал-спонсор",
+        callback_data="add_sponsor_channel"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="📋 Список каналов-спонсоров",
-            callback_data="list_sponsor_channels"
-        )
+    builder.button(
+        text="📋 Список каналов-спонсоров",
+        callback_data="list_sponsor_channels"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="📊 Проверить лимиты",
-            callback_data="check_limits_info"
-        )
+    builder.button(
+        text="📊 Проверить лимиты",
+        callback_data="check_limits_info"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="⬅️ Назад к настройкам",
-            callback_data="manage_giveaway_settings"
-        )
+    builder.button(
+        text="⬅️ Назад к настройкам",
+        callback_data="manage_giveaway_settings"
     )
+    
+    # Устанавливаем по одной кнопке в строке для лучшей читаемости
+    builder.adjust(1)
     
     return builder.as_markup()
 
@@ -121,7 +118,7 @@ def channel_selection_kb(channels: list[Channel], mode: str, selected_ids: list[
     builder.button(text="➕ Добавить новый канал", callback_data="add_new_channel_constr")
     builder.button(text="💾 Готово (Сохранить)", callback_data="constr_back_main")
     
-    builder.adjust(1)
+    builder.adjust(1)  # Одна кнопка в ряду для лучшей читаемости
     return builder.as_markup()
 
 
@@ -131,53 +128,41 @@ def get_giveaway_settings_keyboard() -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     
-    builder.row(
-        InlineKeyboardButton(
-            text="🔗 Изменить реферальную систему",
-            callback_data="edit_referral_system"
-        )
+    # Делаем кнопки более широкими для лучшей читаемости
+    builder.button(
+        text="🔗 Изменить реферальную систему",
+        callback_data="edit_referral_system"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="🛡 Настроить капчу",
-            callback_data="edit_captcha_settings"
-        )
+    builder.button(
+        text="🛡 Настроить капчу",
+        callback_data="edit_captcha_settings"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="🎭 Скрыть список участников",
-            callback_data="toggle_hide_participants"
-        )
+    builder.button(
+        text="🎭 Скрыть список участников",
+        callback_data="toggle_hide_participants"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="📢 Управление спонсорами",
-            callback_data="manage_sponsors"
-        )
+    builder.button(
+        text="📢 Управление спонсорами",
+        callback_data="manage_sponsors"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="⏱ Настроить время окончания",
-            callback_data="edit_end_time"
-        )
+    builder.button(
+        text="⏱ Настроить время окончания",
+        callback_data="edit_end_time"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="🏆 Изменить количество победителей",
-            callback_data="edit_winners_count"
-        )
+    builder.button(
+        text="🏆 Изменить количество победителей",
+        callback_data="edit_winners_count"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="✏️ Изменить текст/медиа",
-            callback_data="edit_giveaway_content"
-        )
+    builder.button(
+        text="✏️ Изменить текст/медиа",
+        callback_data="edit_giveaway_content"
     )
-    builder.row(
-        InlineKeyboardButton(
-            text="⬅️ Назад",
-            callback_data="manage_giveaway_settings"
-        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data="manage_giveaway_settings"
     )
+    
+    # Устанавливаем по одной кнопке в строке для лучшей читаемости
+    builder.adjust(1)
     
     return builder.as_markup()

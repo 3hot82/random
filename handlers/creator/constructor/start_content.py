@@ -33,10 +33,10 @@ async def start_constructor(event: types.Message | types.CallbackQuery, state: F
         "winners": 1, "ref_req": 0, "is_captcha": False,
         "message_manager_data": {}
     })
-    await state.set_state(ConstructorState.editing_content)
+    await state.set_state(ConstructorState.editing_short_description)
     
     # Отправляем инструкцию "Шаг 1"
-    hint_text = await get_control_hint('content')
+    hint_text = "📝 <b>Шаг 1 из 7: Название главного приза</b>\n\nВведите краткое описание вашего розыгрыша (например, \"iPhone 17\", \"30 подарков\", \"VIP-доступ\", \"Неделя призов\"). Это описание будет использоваться для быстрого просмотра в списке розыгрышей."
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_creation")]])
     
     if isinstance(event, types.CallbackQuery):
@@ -161,18 +161,10 @@ async def receive_content(message: types.Message, state: FSMContext, bot: Bot):
     
     # 5. Сохраняем данные
     await state.update_data(text=safe_text, media_file_id=media_id, media_type=media_type)
-    await state.set_state(ConstructorState.editing_short_description)
+    await state.set_state(ConstructorState.init)
     
-    # 6. Запрашиваем краткое описание
-    hint_text = "📝 <b>Шаг 2 из 7: Краткое описание</b>\n\nВведите краткое описание вашего розыгрыша (например, \"iPhone 17\", \"30 подарков\", \"VIP-доступ\", \"Неделя призов\"). Это описание будет использоваться для быстрого просмотра в списке розыгрышей."
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_creation")]
-    ])
-    
-    msg = await message.answer(hint_text, reply_markup=kb)
-    manager = await get_message_manager(state)
-    manager.add_temp_message(msg)
-    await update_message_manager(state, manager)
+    # 6. Перерисовка интерфейса
+    await refresh_constructor_view(bot, state, message.chat.id, hint_key='main_channel')
 
 @router.message(ConstructorState.editing_short_description)
 async def receive_short_description(message: types.Message, state: FSMContext, bot: Bot):
@@ -200,7 +192,13 @@ async def receive_short_description(message: types.Message, state: FSMContext, b
 
     # Сохраняем краткое описание
     await state.update_data(short_description=short_description)
-    await state.set_state(ConstructorState.init)
+    await state.set_state(ConstructorState.editing_content)
     
-    # Перерисовка интерфейса
-    await refresh_constructor_view(bot, state, message.chat.id, hint_key='main_channel')
+    # Отправляем инструкцию "Шаг 2"
+    hint_text = await get_control_hint('content')
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_creation")]])
+    
+    msg = await message.answer(hint_text, reply_markup=kb)
+    manager = await get_message_manager(state)
+    manager.add_temp_message(msg)
+    await update_message_manager(state, manager)
